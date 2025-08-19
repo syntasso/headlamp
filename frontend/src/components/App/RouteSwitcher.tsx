@@ -133,13 +133,8 @@ function PageTitle({
   const cluster = useCluster();
 
   React.useEffect(() => {
-    if (cluster && title) {
-      document.title = `${cluster} - ${title}`;
-      return;
-    }
-
-    document.title = cluster || title || '';
-  }, [cluster, title]);
+    document.title = title ? `${title} - Syntasso Kratix Enterprise` : 'Syntasso Kratix Enterprise';
+  }, [title]);
 
   return <>{children}</>;
 }
