@@ -163,6 +163,7 @@ export const syntassoTheme: AppTheme = {
   text: {
     primary: '#44444f',
   },
+  fontFamily: ['Roboto', 'sans-serif'],
   background: {
     muted: '#f5f5f5',
   },
