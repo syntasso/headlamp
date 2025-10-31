@@ -170,6 +170,7 @@ function allContainers(pod: Pod): string[] {
           const jobName = item.getName();
           labelSelector = `batch.kubernetes.io/job-name=${jobName}`;
         } else {
+
           labelSelector = labelSelectorToQuery(item.spec.selector);
           if (!labelSelector) {
           throw new Error(
@@ -179,7 +180,6 @@ function allContainers(pod: Pod): string[] {
           );
         }
         }
-
 
         const response = await clusterFetch(
           `/api/v1/namespaces/${ns}/pods?labelSelector=${encodeURIComponent(labelSelector)}`,
@@ -194,9 +194,9 @@ function allContainers(pod: Pod): string[] {
       } catch (error) {
         console.error('Error in getRelatedPods:', error);
         throw new Error(
-            error instanceof Error
-            ? error.message
-            : t('translation|Failed to fetch related pods')
+          error instanceof Error
+          ? error.message
+          : t('translation|Failed to fetch related pods')
         );
       }
     }
