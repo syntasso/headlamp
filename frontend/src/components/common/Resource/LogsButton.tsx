@@ -40,7 +40,6 @@ import { KubeObject } from '../../../lib/k8s/KubeObject';
 import Pod from '../../../lib/k8s/pod';
 import ReplicaSet from '../../../lib/k8s/replicaSet';
 import StatefulSet from '../../../lib/k8s/statefulSet';
-import Job from '../../../lib/k8s/job';
 import {
   EventStatus,
   HeadlampEvent,
@@ -65,12 +64,7 @@ export const LOGGABLE_WORKLOAD_KINDS: ReadonlySet<string> = new Set([
   'ReplicaSet',
   'DaemonSet',
   'StatefulSet',
-<<<<<<< HEAD
   'Job',
-||||||| parent of ce21cb51b (feat: add Logs button to Job details)
-=======
-  "Job",
->>>>>>> ce21cb51b (feat: add Logs button to Job details)
 ]);
 
 // Kind + apiGroup check via KubeObject.isClassOf — cross-bundle safe, unlike
@@ -183,6 +177,7 @@ function allContainers(pod: Pod): string[] {
 
         const queryParams = { labelSelector };
 
+
         const response = await clusterFetch(
           makeUrl(`/api/v1/namespaces/${item.metadata.namespace}/pods`, queryParams),
           { cluster: item.cluster }
@@ -196,9 +191,9 @@ function allContainers(pod: Pod): string[] {
       } catch (error) {
         console.error('Error in getRelatedPods:', error);
         throw new Error(
-            error instanceof Error
-            ? error.message
-            : t('translation|Failed to fetch related pods')
+          error instanceof Error
+          ? error.message
+          : t('translation|Failed to fetch related pods')
         );
       }
     }
