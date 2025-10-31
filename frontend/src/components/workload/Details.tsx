@@ -108,8 +108,7 @@ export default function WorkloadDetails<T extends WorkloadClass>(props: Workload
       actions={item => {
         if (!item) return [];
         const actions = [];
-
-        const isLoggable = ['Deployment', 'ReplicaSet', 'DaemonSet'].includes(workloadKind.kind);
+        const isLoggable = ['Deployment', 'ReplicaSet', 'DaemonSet', 'Job'].includes(workloadKind.kind);
         if (isLoggable) {
           actions.push({
             id: 'logs',
