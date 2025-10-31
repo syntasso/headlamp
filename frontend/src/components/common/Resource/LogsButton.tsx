@@ -34,6 +34,7 @@ import Deployment from '../../../lib/k8s/deployment';
 import { KubeObject } from '../../../lib/k8s/KubeObject';
 import Pod from '../../../lib/k8s/pod';
 import ReplicaSet from '../../../lib/k8s/replicaSet';
+import Job from '../../../lib/k8s/job';
 import { Activity } from '../../activity/Activity';
 import ActionButton from '../ActionButton';
 import { LogViewer } from '../LogViewer';
@@ -79,20 +80,30 @@ function LogsButtonContent({ item }: LogsButtonProps) {
     setLogs({ logs: [], lastLineShown: -1 });
   }, []);
 
-  // Fetch related pods.
-  async function getRelatedPods(): Promise<Pod[]> {
-    if (item instanceof Deployment || item instanceof ReplicaSet || item instanceof DaemonSet) {
-      try {
-        let labelSelector = '';
-        const selector = item.spec.selector;
+// Fetch related pods.
+async function getRelatedPods(): Promise<Pod[]> {
+  if (
+    item instanceof Deployment ||
+    item instanceof ReplicaSet ||
+    item instanceof DaemonSet ||
+    item instanceof Job
+  ) {
+    try {
+      const ns = item.metadata.namespace;
+      const cluster = item.cluster;
+      let labelSelector = '';
 
-        if (selector.matchLabels) {
-          labelSelector = Object.entries(selector.matchLabels)
+      if (item instanceof Job) {
+        const jobName = item.getName();
+        labelSelector = `batch.kubernetes.io/job-name=${jobName}`;
+      } else {
+        // Existing behavior for Deployment / ReplicaSet / DaemonSet
+        const matchLabels = item.spec?.selector?.matchLabels ?? {};
+        if (Object.keys(matchLabels).length > 0) {
+          labelSelector = Object.entries(matchLabels)
             .map(([key, value]) => `${key}=${value}`)
             .join(',');
-        }
-
-        if (!labelSelector) {
+        } else {
           const resourceType =
             item instanceof Deployment
               ? 'deployment'
@@ -103,26 +114,30 @@ function LogsButtonContent({ item }: LogsButtonProps) {
             t('translation|No label selectors found for this {{type}}', { type: resourceType })
           );
         }
-
-        const response = await clusterFetch(
-          `/api/v1/namespaces/${item.metadata.namespace}/pods?labelSelector=${labelSelector}`,
-          { cluster: item.cluster }
-        ).then(it => it.json());
-
-        if (!response?.items) {
-          throw new Error(t('translation|Invalid response from server'));
-        }
-
-        return response.items.map((podData: any) => new Pod(podData));
-      } catch (error) {
-        console.error('Error in getRelatedPods:', error);
-        throw new Error(
-          error instanceof Error ? error.message : t('translation|Failed to fetch related pods')
-        );
       }
+
+      const response = await clusterFetch(
+        `/api/v1/namespaces/${ns}/pods?labelSelector=${encodeURIComponent(labelSelector)}`,
+        { cluster }
+      ).then(r => r.json());
+
+      if (!response?.items) {
+        throw new Error(t('translation|Invalid response from server'));
+      }
+
+      return response.items.map((podData: any) => new Pod(podData));
+    } catch (error) {
+      console.error('Error in getRelatedPods:', error);
+      throw new Error(
+        error instanceof Error
+          ? error.message
+          : t('translation|Failed to fetch related pods')
+      );
     }
-    return [];
   }
+
+  return [];
+}
 
   // Event handlers for log viewing options
   function handleLinesChange(event: any) {
@@ -143,7 +158,7 @@ function LogsButtonContent({ item }: LogsButtonProps) {
 
   // Handler for initial logs button click
   async function onMount() {
-    if (item instanceof Deployment || item instanceof ReplicaSet || item instanceof DaemonSet) {
+    if (item instanceof Deployment || item instanceof ReplicaSet || item instanceof DaemonSet || item instanceof Job) {
       try {
         const fetchedPods = await getRelatedPods();
         if (fetchedPods.length > 0) {
@@ -535,7 +550,7 @@ export function LogsButton({ item }: LogsButtonProps) {
   return (
     <>
       {/* Show logs button for supported workload types */}
-      {(item instanceof Deployment || item instanceof ReplicaSet || item instanceof DaemonSet) && (
+      {(item instanceof Deployment || item instanceof ReplicaSet || item instanceof DaemonSet || item instanceof Job) && (
         <ActionButton
           icon="mdi:file-document-box-outline"
           onClick={onClick}
