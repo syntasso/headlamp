@@ -140,7 +140,7 @@ export default function WorkloadDetails<T extends WorkloadClass>(props: Workload
       actions={item => {
         if (!item) return [];
         const actions = [];
-
+        
         if (isLoggableKind) {
           actions.push({
             id: 'logs',

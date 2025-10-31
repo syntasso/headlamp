@@ -40,6 +40,7 @@ import { KubeObject } from '../../../lib/k8s/KubeObject';
 import Pod from '../../../lib/k8s/pod';
 import ReplicaSet from '../../../lib/k8s/replicaSet';
 import StatefulSet from '../../../lib/k8s/statefulSet';
+import Job from '../../../lib/k8s/job';
 import {
   EventStatus,
   HeadlampEvent,
@@ -64,7 +65,12 @@ export const LOGGABLE_WORKLOAD_KINDS: ReadonlySet<string> = new Set([
   'ReplicaSet',
   'DaemonSet',
   'StatefulSet',
+<<<<<<< HEAD
   'Job',
+||||||| parent of ce21cb51b (feat: add Logs button to Job details)
+=======
+  "Job",
+>>>>>>> ce21cb51b (feat: add Logs button to Job details)
 ]);
 
 // Kind + apiGroup check via KubeObject.isClassOf — cross-bundle safe, unlike
@@ -122,7 +128,7 @@ function LogsButtonContent({ item }: LogsButtonProps) {
       // ignore parse errors
     }
     return [...ALL_SEVERITIES];
-  });
+});
 
   const xtermRef = React.useRef<XTerminal | null>(null);
   const processLogsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -151,6 +157,12 @@ function LogsButtonContent({ item }: LogsButtonProps) {
     }
     setLogs({ logs: [], lastLineShown: -1 });
   }, []);
+
+function allContainers(pod: Pod): string[] {
+  const init = (pod.spec?.initContainers ?? []).map(c => c.name);
+  const app  = (pod.spec?.containers ?? []).map(c => c.name);
+  return [...init, ...app];
+}
 
   // Fetch related pods.
   async function getRelatedPods(): Promise<Pod[]> {
@@ -184,7 +196,9 @@ function LogsButtonContent({ item }: LogsButtonProps) {
       } catch (error) {
         console.error('Error in getRelatedPods:', error);
         throw new Error(
-          error instanceof Error ? error.message : t('translation|Failed to fetch related pods')
+            error instanceof Error
+            ? error.message
+            : t('translation|Failed to fetch related pods')
         );
       }
     }
@@ -246,11 +260,20 @@ function LogsButtonContent({ item }: LogsButtonProps) {
   // Get containers for the selected pod
   const containers = React.useMemo(() => {
     if (!pods.length) return [];
-    if (selectedPodIndex === 'all')
-      return pods[0]?.spec?.containers?.map(container => container.name) || [];
+
+    // When showing logs for a Job, include initContainers too.
+    const namesFor = (pod: Pod) =>
+      item instanceof Job
+      ? allContainers(pod)
+      : (pod.spec?.containers ?? []).map(c => c.name);
+
+    if (selectedPodIndex === 'all') {
+      return namesFor(pods[0]);
+    }
+
     const selectedPod = pods[selectedPodIndex as number];
-    return selectedPod?.spec?.containers?.map(container => container.name) || [];
-  }, [pods, selectedPodIndex]);
+    return selectedPod ? namesFor(selectedPod) : [];
+  }, [pods, selectedPodIndex, item]);
 
   // Check if a container has been restarted
   function hasContainerRestarted(podName: string | undefined, containerName: string) {
