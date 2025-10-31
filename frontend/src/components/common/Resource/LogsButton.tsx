@@ -27,16 +27,14 @@ import { Terminal as XTerminal } from '@xterm/xterm';
 import { useSnackbar } from 'notistack';
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { labelSelectorToQuery } from '../../../lib/k8s';
 import { clusterFetch } from '../../../lib/k8s/api/v2/fetch';
-import { makeUrl } from '../../../lib/k8s/api/v2/makeUrl';
 import { KubeContainerStatus } from '../../../lib/k8s/cluster';
 import DaemonSet from '../../../lib/k8s/daemonSet';
 import Deployment from '../../../lib/k8s/deployment';
 import { KubeObject } from '../../../lib/k8s/KubeObject';
 import Pod from '../../../lib/k8s/pod';
 import ReplicaSet from '../../../lib/k8s/replicaSet';
-import StatefulSet from '../../../lib/k8s/statefulSet';
+import Job from '../../../lib/k8s/job';
 import { Activity } from '../../activity/Activity';
 import ActionButton from '../ActionButton';
 import { LogViewer } from '../LogViewer';
@@ -82,37 +80,53 @@ function LogsButtonContent({ item }: LogsButtonProps) {
     setLogs({ logs: [], lastLineShown: -1 });
   }, []);
 
-  // Fetch related pods.
+
+function allContainers(pod: Pod): string[] {
+  const init = (pod.spec?.initContainers ?? []).map(c => c.name);
+  const app  = (pod.spec?.containers ?? []).map(c => c.name);
+  return [...init, ...app];
+}
+
+// Fetch related pods.
   async function getRelatedPods(): Promise<Pod[]> {
     if (
       item instanceof Deployment ||
       item instanceof ReplicaSet ||
       item instanceof DaemonSet ||
-      item instanceof StatefulSet
+      item instanceof Job
     ) {
       try {
-        const labelSelector = labelSelectorToQuery(item.spec.selector);
+        const ns = item.metadata.namespace;
+        const cluster = item.cluster;
+        let labelSelector = '';
 
-        if (!labelSelector) {
-          const resourceType =
-            item instanceof Deployment
-              ? 'deployment'
-              : item instanceof ReplicaSet
-              ? 'replicaset'
-              : item instanceof StatefulSet
-              ? 'statefulset'
-              : 'daemonset';
-          throw new Error(
-            t('translation|No label selectors found for this {{type}}', { type: resourceType })
-          );
+        if (item instanceof Job) {
+          const jobName = item.getName();
+          labelSelector = `batch.kubernetes.io/job-name=${jobName}`;
+        } else {
+          // Existing behavior for Deployment / ReplicaSet / DaemonSet
+          const matchLabels = item.spec?.selector?.matchLabels ?? {};
+          if (Object.keys(matchLabels).length > 0) {
+            labelSelector = Object.entries(matchLabels)
+              .map(([key, value]) => `${key}=${value}`)
+              .join(',');
+          } else {
+            const resourceType =
+              item instanceof Deployment
+                ? 'deployment'
+                : item instanceof ReplicaSet
+                ? 'replicaset'
+                : 'daemonset';
+            throw new Error(
+              t('translation|No label selectors found for this {{type}}', { type: resourceType })
+            );
+          }
         }
 
-        const queryParams = { labelSelector };
-
         const response = await clusterFetch(
-          makeUrl(`/api/v1/namespaces/${item.metadata.namespace}/pods`, queryParams),
-          { cluster: item.cluster }
-        ).then(it => it.json());
+          `/api/v1/namespaces/${ns}/pods?labelSelector=${encodeURIComponent(labelSelector)}`,
+          { cluster }
+        ).then(r => r.json());
 
         if (!response?.items) {
           throw new Error(t('translation|Invalid response from server'));
@@ -122,10 +136,13 @@ function LogsButtonContent({ item }: LogsButtonProps) {
       } catch (error) {
         console.error('Error in getRelatedPods:', error);
         throw new Error(
-          error instanceof Error ? error.message : t('translation|Failed to fetch related pods')
+          error instanceof Error
+            ? error.message
+            : t('translation|Failed to fetch related pods')
         );
       }
     }
+
     return [];
   }
 
@@ -148,12 +165,7 @@ function LogsButtonContent({ item }: LogsButtonProps) {
 
   // Handler for initial logs button click
   async function onMount() {
-    if (
-      item instanceof Deployment ||
-      item instanceof ReplicaSet ||
-      item instanceof DaemonSet ||
-      item instanceof StatefulSet
-    ) {
+    if (item instanceof Deployment || item instanceof ReplicaSet || item instanceof DaemonSet || item instanceof Job) {
       try {
         const fetchedPods = await getRelatedPods();
         if (fetchedPods.length > 0) {
@@ -187,12 +199,21 @@ function LogsButtonContent({ item }: LogsButtonProps) {
 
   // Get containers for the selected pod
   const containers = React.useMemo(() => {
-    if (!pods.length) return [];
-    if (selectedPodIndex === 'all')
-      return pods[0]?.spec?.containers?.map(container => container.name) || [];
-    const selectedPod = pods[selectedPodIndex as number];
-    return selectedPod?.spec?.containers?.map(container => container.name) || [];
-  }, [pods, selectedPodIndex]);
+  if (!pods.length) return [];
+
+  // When showing logs for a Job, include initContainers too.
+  const namesFor = (pod: Pod) =>
+      item instanceof Job
+      ? allContainers(pod)
+      : (pod.spec?.containers ?? []).map(c => c.name);
+
+  if (selectedPodIndex === 'all') {
+      return namesFor(pods[0]);
+  }
+
+  const selectedPod = pods[selectedPodIndex as number];
+  return selectedPod ? namesFor(selectedPod) : [];
+  }, [pods, selectedPodIndex, item]);
 
   // Check if a container has been restarted
   function hasContainerRestarted(podName: string | undefined, containerName: string) {
@@ -545,10 +566,7 @@ export function LogsButton({ item }: LogsButtonProps) {
   return (
     <>
       {/* Show logs button for supported workload types */}
-      {(item instanceof Deployment ||
-        item instanceof ReplicaSet ||
-        item instanceof DaemonSet ||
-        item instanceof StatefulSet) && (
+      {(item instanceof Deployment || item instanceof ReplicaSet || item instanceof DaemonSet || item instanceof Job) && (
         <ActionButton
           icon="mdi:file-document-box-outline"
           onClick={onClick}
