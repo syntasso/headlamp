@@ -145,7 +145,13 @@ async function getRelatedPods(): Promise<Pod[]> {
   }
 
   return [];
+
+function allContainers(pod: Pod): string[] {
+  const init = (pod.spec?.initContainers ?? []).map(c => c.name);
+  const app  = (pod.spec?.containers ?? []).map(c => c.name);
+  return [...init, ...app];
 }
+
 
   // Event handlers for log viewing options
   function handleLinesChange(event: any) {
@@ -205,12 +211,21 @@ async function getRelatedPods(): Promise<Pod[]> {
 
   // Get containers for the selected pod
   const containers = React.useMemo(() => {
-    if (!pods.length) return [];
-    if (selectedPodIndex === 'all')
-      return pods[0]?.spec?.containers?.map(container => container.name) || [];
-    const selectedPod = pods[selectedPodIndex as number];
-    return selectedPod?.spec?.containers?.map(container => container.name) || [];
-  }, [pods, selectedPodIndex]);
+  if (!pods.length) return [];
+
+  // When showing logs for a Job, include initContainers too.
+  const namesFor = (pod: Pod) =>
+      item instanceof Job
+      ? allContainers(pod)
+      : (pod.spec?.containers ?? []).map(c => c.name);
+
+  if (selectedPodIndex === 'all') {
+      return namesFor(pods[0]);
+  }
+
+  const selectedPod = pods[selectedPodIndex as number];
+  return selectedPod ? namesFor(selectedPod) : [];
+  }, [pods, selectedPodIndex, item]);
 
   // Check if a container has been restarted
   function hasContainerRestarted(podName: string | undefined, containerName: string) {
