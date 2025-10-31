@@ -80,64 +80,71 @@ function LogsButtonContent({ item }: LogsButtonProps) {
     setLogs({ logs: [], lastLineShown: -1 });
   }, []);
 
-// Fetch related pods.
-async function getRelatedPods(): Promise<Pod[]> {
-  if (
-    item instanceof Deployment ||
-    item instanceof ReplicaSet ||
-    item instanceof DaemonSet ||
-    item instanceof Job
-  ) {
-    try {
-      const ns = item.metadata.namespace;
-      const cluster = item.cluster;
-      let labelSelector = '';
 
-      if (item instanceof Job) {
-        const jobName = item.getName();
-        labelSelector = `batch.kubernetes.io/job-name=${jobName}`;
-      } else {
-        // Existing behavior for Deployment / ReplicaSet / DaemonSet
-        const matchLabels = item.spec?.selector?.matchLabels ?? {};
-        if (Object.keys(matchLabels).length > 0) {
-          labelSelector = Object.entries(matchLabels)
-            .map(([key, value]) => `${key}=${value}`)
-            .join(',');
-        } else {
-          const resourceType =
-            item instanceof Deployment
-              ? 'deployment'
-              : item instanceof ReplicaSet
-              ? 'replicaset'
-              : 'daemonset';
-          throw new Error(
-            t('translation|No label selectors found for this {{type}}', { type: resourceType })
-          );
-        }
-      }
-
-      const response = await clusterFetch(
-        `/api/v1/namespaces/${ns}/pods?labelSelector=${encodeURIComponent(labelSelector)}`,
-        { cluster }
-      ).then(r => r.json());
-
-      if (!response?.items) {
-        throw new Error(t('translation|Invalid response from server'));
-      }
-
-      return response.items.map((podData: any) => new Pod(podData));
-    } catch (error) {
-      console.error('Error in getRelatedPods:', error);
-      throw new Error(
-        error instanceof Error
-          ? error.message
-          : t('translation|Failed to fetch related pods')
-      );
-    }
-  }
-
-  return [];
+function allContainers(pod: Pod): string[] {
+  const init = (pod.spec?.initContainers ?? []).map(c => c.name);
+  const app  = (pod.spec?.containers ?? []).map(c => c.name);
+  return [...init, ...app];
 }
+
+// Fetch related pods.
+  async function getRelatedPods(): Promise<Pod[]> {
+    if (
+      item instanceof Deployment ||
+      item instanceof ReplicaSet ||
+      item instanceof DaemonSet ||
+      item instanceof Job
+    ) {
+      try {
+        const ns = item.metadata.namespace;
+        const cluster = item.cluster;
+        let labelSelector = '';
+
+        if (item instanceof Job) {
+          const jobName = item.getName();
+          labelSelector = `batch.kubernetes.io/job-name=${jobName}`;
+        } else {
+          // Existing behavior for Deployment / ReplicaSet / DaemonSet
+          const matchLabels = item.spec?.selector?.matchLabels ?? {};
+          if (Object.keys(matchLabels).length > 0) {
+            labelSelector = Object.entries(matchLabels)
+              .map(([key, value]) => `${key}=${value}`)
+              .join(',');
+          } else {
+            const resourceType =
+              item instanceof Deployment
+                ? 'deployment'
+                : item instanceof ReplicaSet
+                ? 'replicaset'
+                : 'daemonset';
+            throw new Error(
+              t('translation|No label selectors found for this {{type}}', { type: resourceType })
+            );
+          }
+        }
+
+        const response = await clusterFetch(
+          `/api/v1/namespaces/${ns}/pods?labelSelector=${encodeURIComponent(labelSelector)}`,
+          { cluster }
+        ).then(r => r.json());
+
+        if (!response?.items) {
+          throw new Error(t('translation|Invalid response from server'));
+        }
+
+        return response.items.map((podData: any) => new Pod(podData));
+      } catch (error) {
+        console.error('Error in getRelatedPods:', error);
+        throw new Error(
+          error instanceof Error
+            ? error.message
+            : t('translation|Failed to fetch related pods')
+        );
+      }
+    }
+
+    return [];
+  }
 
   // Event handlers for log viewing options
   function handleLinesChange(event: any) {
@@ -192,12 +199,21 @@ async function getRelatedPods(): Promise<Pod[]> {
 
   // Get containers for the selected pod
   const containers = React.useMemo(() => {
-    if (!pods.length) return [];
-    if (selectedPodIndex === 'all')
-      return pods[0]?.spec?.containers?.map(container => container.name) || [];
-    const selectedPod = pods[selectedPodIndex as number];
-    return selectedPod?.spec?.containers?.map(container => container.name) || [];
-  }, [pods, selectedPodIndex]);
+  if (!pods.length) return [];
+
+  // When showing logs for a Job, include initContainers too.
+  const namesFor = (pod: Pod) =>
+      item instanceof Job
+      ? allContainers(pod)
+      : (pod.spec?.containers ?? []).map(c => c.name);
+
+  if (selectedPodIndex === 'all') {
+      return namesFor(pods[0]);
+  }
+
+  const selectedPod = pods[selectedPodIndex as number];
+  return selectedPod ? namesFor(selectedPod) : [];
+  }, [pods, selectedPodIndex, item]);
 
   // Check if a container has been restarted
   function hasContainerRestarted(podName: string | undefined, containerName: string) {
