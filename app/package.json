@@ -1,6 +1,6 @@
 {
   "name": "headlamp",
-  "version": "0.40.0",
+  "version": "0.41.0",
   "description": "Easy-to-use and extensible Kubernetes web UI",
   "main": "build/main.js",
   "homepage": "https://github.com/kubernetes-sigs/headlamp/#readme",
@@ -162,7 +162,7 @@
     "@types/node": "^22.14.0",
     "@types/semver": "^7.7.0",
     "@types/yargs": "^17.0.35",
-    "electron": "^31.2.0",
+    "electron": "^41.2.0",
     "electron-builder": "^26.6.0",
     "esbuild": "^0.25.0",
     "i18next-parser": "^9.0.0",

@@ -70,6 +70,7 @@ import InnerTable from '../InnerTable';
 import { DateLabel, HoverInfoLabel, StatusLabel, StatusLabelProps, ValueLabel } from '../Label';
 import Link, { LinkProps } from '../Link';
 import { metadataStyles } from '.';
+import A8RInfo from './A8RInfo';
 import { MainInfoSection, MainInfoSectionProps } from './MainInfoSection/MainInfoSection';
 import { MainInfoHeader } from './MainInfoSection/MainInfoSectionHeader';
 import { MetadataDictGrid, MetadataDisplay } from './MetadataDisplay';
@@ -285,6 +286,22 @@ export function DetailsGrid<T extends KubeObjectClass>(props: DetailsGridProps<T
         </SectionBox>
       ),
     });
+  }
+
+  // a8r.io Metadata section — rendered for any resource that carries a8r.io/* annotations
+  if (item) {
+    const annotations = item.metadata?.annotations ?? {};
+    const hasA8r = Object.keys(annotations).some(key => key.startsWith('a8r.io/'));
+    if (hasA8r) {
+      sections.push({
+        id: 'headlamp.a8r-info',
+        section: (
+          <SectionBox title={t('a8r.io Metadata')}>
+            <A8RInfo annotations={annotations} />
+          </SectionBox>
+        ),
+      });
+    }
   }
 
   // Other sections
@@ -978,7 +995,31 @@ function buildEnvironmentVariables(
         }
 
         try {
-          const targetContainer = pod.spec?.containers?.find(c => c.name === containerName);
+          const allContainers: any[] = [
+            ...(pod.spec?.containers || []),
+            ...(pod.spec?.initContainers || []),
+            ...(pod.spec?.ephemeralContainers || []),
+          ];
+
+          const templateSpec = (pod.spec as any)?.template?.spec;
+          if (templateSpec) {
+            allContainers.push(
+              ...(templateSpec.containers || []),
+              ...(templateSpec.initContainers || []),
+              ...(templateSpec.ephemeralContainers || [])
+            );
+          }
+
+          const jobTemplateSpec = (pod.spec as any)?.jobTemplate?.spec?.template?.spec;
+          if (jobTemplateSpec) {
+            allContainers.push(
+              ...(jobTemplateSpec.containers || []),
+              ...(jobTemplateSpec.initContainers || []),
+              ...(jobTemplateSpec.ephemeralContainers || [])
+            );
+          }
+
+          const targetContainer = allContainers.find(c => c.name === containerName);
           if (!targetContainer) {
             throw new Error(`Container ${containerName} not found`);
           }
@@ -1591,11 +1632,12 @@ export function ContainerInfo(props: ContainerInfoProps) {
         name: t('Ports'),
         value: (
           <Grid container>
-            {container.ports?.map(({ containerPort, protocol }, index) => (
+            {container.ports?.map(({ containerPort, protocol, name }, index) => (
               <>
                 <Grid item xs={12} key={`port_line_${index}`}>
                   <Box display="flex" alignItems={'center'}>
                     <Box px={0.5} minWidth={120}>
+                      {name && <ValueLabel>{`${name} `}</ValueLabel>}
                       <ValueLabel>{`${protocol}:`}</ValueLabel>
                       <ValueLabel>{containerPort}</ValueLabel>
                     </Box>
@@ -1680,6 +1722,7 @@ export function OwnedPodsSection(props: OwnedPodsSectionProps) {
       errors={errors}
       metrics={podMetrics}
       noNamespaceFilter={hideNamespaceFilter}
+      hideCreateButton
     />
   );
 }
