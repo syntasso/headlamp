@@ -145,6 +145,7 @@ async function getRelatedPods(): Promise<Pod[]> {
   }
 
   return [];
+}
 
 function allContainers(pod: Pod): string[] {
   const init = (pod.spec?.initContainers ?? []).map(c => c.name);
