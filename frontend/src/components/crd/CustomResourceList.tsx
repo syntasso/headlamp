@@ -114,10 +114,6 @@ export function CustomResourceListTable(props: CustomResourceTableProps) {
   const clusters = useSelectedClusters();
   const isMultiCluster = clusters.length > 1;
 
-  if (!CRClass) {
-    return <Empty>{t('translation|No custom resources found')}</Empty>;
-  }
-
   const additionalPrinterCols = React.useMemo(() => {
     const currentVersion = apiGroup[1];
     const colsFromSpec =
@@ -167,7 +163,12 @@ export function CustomResourceListTable(props: CustomResourceTableProps) {
     }
 
     return colsToDisplay;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [crd, additionalPrinterCols, isMultiCluster]);
+
+  if (!CRClass) {
+    return <Empty>{t('translation|No custom resources found')}</Empty>;
+  }
 
   return (
     <ResourceListView

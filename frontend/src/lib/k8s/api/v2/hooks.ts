@@ -130,6 +130,7 @@ export function useKubeObject<K extends KubeObject>({
   const queryKey = useMemo(
     () =>
       kubeObjectQueryKey({ cluster, name, namespace, endpoint, queryParams: cleanedUpQueryParams }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [endpoint, namespace, name]
   );
 
@@ -171,33 +172,31 @@ export function useKubeObject<K extends KubeObject>({
         },
       },
     ];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [endpoint]);
 
-  // Breaking rules of hooks here a little but
-  // getWebsocketMultiplexerEnabled is a feature toggle
-  // and not a variable so this `if` should never change during runtime
-  if (getWebsocketMultiplexerEnabled()) {
-    useWebSocket<KubeListUpdateEvent<K>>({
-      url: () =>
-        makeUrl([KubeObjectEndpoint.toUrl(endpoint!)], {
-          ...cleanedUpQueryParams,
-          watch: 1,
-          fieldSelector: `metadata.name=${name}`,
-        }),
-      enabled: !!endpoint && !!data,
-      cluster,
-      onMessage(update: KubeListUpdateEvent<K>) {
-        if (update.type !== 'ADDED' && update.object) {
-          client.setQueryData(queryKey, new kubeObjectClass(update.object));
-        }
-      },
-    });
-  } else {
-    useWebSockets({
-      enabled: !!endpoint && !!data,
-      connections: connectionsRequests,
-    });
-  }
+  const multiplexerEnabled = getWebsocketMultiplexerEnabled();
+
+  useWebSocket<KubeListUpdateEvent<K>>({
+    url: () =>
+      makeUrl([KubeObjectEndpoint.toUrl(endpoint!, namespace)], {
+        ...cleanedUpQueryParams,
+        watch: 1,
+        fieldSelector: `metadata.name=${name}`,
+      }),
+    enabled: multiplexerEnabled && !!endpoint && !!data,
+    cluster,
+    onMessage(update: KubeListUpdateEvent<K>) {
+      if (update.type !== 'ADDED' && update.object) {
+        client.setQueryData(queryKey, new kubeObjectClass(update.object));
+      }
+    },
+  });
+
+  useWebSockets({
+    enabled: !multiplexerEnabled && !!endpoint && !!data,
+    connections: connectionsRequests,
+  });
 
   // @ts-ignore
   return {

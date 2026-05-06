@@ -41,6 +41,7 @@ import Endpoints from '../../lib/k8s/endpoints';
 import EndpointSlice from '../../lib/k8s/endpointSlices';
 import Ingress from '../../lib/k8s/ingress';
 import Job from '../../lib/k8s/job';
+import JobSet from '../../lib/k8s/jobSet';
 import { KubeObject, KubeObjectClass } from '../../lib/k8s/KubeObject';
 import Namespace from '../../lib/k8s/namespace';
 import Node from '../../lib/k8s/node';
@@ -104,6 +105,7 @@ const classes: KubeObjectClass[] = [
   Ingress,
   ServiceAccount,
   Node,
+  JobSet,
 ];
 
 /**
@@ -121,6 +123,7 @@ function useSearchResources() {
         kind: classes[index].kind,
       };
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [results.map(it => it.data)]);
 }
 
@@ -255,6 +258,7 @@ export function GlobalSearchContent({
           history.push(url);
         }
       }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [resources, isMap, location.search]
   );
 
@@ -273,6 +277,7 @@ export function GlobalSearchContent({
             }),
           }),
       })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   );
 
@@ -309,6 +314,7 @@ export function GlobalSearchContent({
             history.push(createRouteURL(name));
           },
         })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [location.pathname, history, selectedClusters]
   );
 
@@ -322,6 +328,7 @@ export function GlobalSearchContent({
       label: capitalize(theme.name),
       onClick: () => dispatch(setTheme(theme.name)),
     }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appThemes]);
 
   // Advanced Search
@@ -340,6 +347,7 @@ export function GlobalSearchContent({
         history.push(createRouteURL('advancedSearch') + '?' + params.toString());
       },
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, selectedClusters]);
   const configureShortcutsAction: SearchResult = useMemo(
     () => ({
@@ -430,6 +438,7 @@ export function GlobalSearchContent({
     if (query) return [];
 
     return allOptions.filter(it => recent[it.id]).sort((a, b) => recent[b.id] - recent[a.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recent, results, query]);
 
   const autocomplete = useAutocomplete<SearchResult, false, false, true>({

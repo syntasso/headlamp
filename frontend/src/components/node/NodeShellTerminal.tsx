@@ -204,7 +204,13 @@ export function NodeShellTerminal(props: NodeShellTerminalProps) {
           }
           return true;
         }
-      } catch {}
+      } catch (e) {
+        console.debug('NodeShellTerminal: failed to parse server error channel data', {
+          channel,
+          text,
+          error: e,
+        });
+      }
     }
     return false;
   }
@@ -217,7 +223,13 @@ export function NodeShellTerminal(props: NodeShellTerminalProps) {
         if (error.code === 500 && error.status === 'Failure' && error.reason === 'InternalError') {
           return true;
         }
-      } catch {}
+      } catch (e) {
+        console.debug('NodeShellTerminal: failed to parse server error channel data', {
+          channel,
+          text,
+          error: e,
+        });
+      }
     }
     // Windows container Error
     if (channel === Channel.StdOut) {
@@ -244,6 +256,7 @@ export function NodeShellTerminal(props: NodeShellTerminalProps) {
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (

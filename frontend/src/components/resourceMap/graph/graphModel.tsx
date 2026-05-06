@@ -16,6 +16,9 @@
 
 import { ComponentType, ReactNode } from 'react';
 import { KubeObject } from '../../../lib/k8s/KubeObject';
+
+export type GraphNodeStatus = 'error' | 'success' | 'warning';
+
 export type GraphNode = {
   /**
    * Unique ID for this node.
@@ -27,6 +30,8 @@ export type GraphNode = {
   label?: string;
   /** Subtitle for this node */
   subtitle?: string;
+  /** Optional health status used for map badges and status filtering */
+  status?: GraphNodeStatus;
   /** Custom icon for this node */
   icon?: ReactNode;
   /**
@@ -139,6 +144,7 @@ const DEFAULT_NODE_WEIGHTS = {
 
   // Tier 3: Job-based Workloads
   CronJob: 960,
+  JobSet: 960,
   Job: 920,
 
   // Tier 4: Intermediate Controllers

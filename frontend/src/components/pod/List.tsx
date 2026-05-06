@@ -187,6 +187,8 @@ export interface PodListProps {
   noNamespaceFilter?: boolean;
   errors?: ApiError[] | null;
   hideCreateButton?: boolean;
+  enableRowActions?: boolean;
+  enableRowSelection?: boolean;
 }
 
 export function PodListRenderer(props: PodListProps) {
@@ -198,6 +200,8 @@ export function PodListRenderer(props: PodListProps) {
     noNamespaceFilter,
     errors,
     hideCreateButton,
+    enableRowActions,
+    enableRowSelection,
   } = props;
   const { t } = useTranslation(['glossary', 'translation']);
 
@@ -493,6 +497,8 @@ export function PodListRenderer(props: PodListProps) {
       data={pods}
       reflectInURL={reflectTableInURL}
       id="headlamp-pods"
+      enableRowActions={enableRowActions}
+      enableRowSelection={enableRowSelection}
     />
   );
 }
@@ -512,6 +518,7 @@ export default function PodList() {
       resourceKind: 'Pod',
       error: errors?.[0] || undefined,
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, errors]);
 
   return <PodListRenderer pods={items} errors={errors} metrics={podMetrics} reflectTableInURL />;

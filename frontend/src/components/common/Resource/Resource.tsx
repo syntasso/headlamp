@@ -41,6 +41,7 @@ import { ApiError } from '../../../lib/k8s/api/v2/ApiError';
 import { KubeCondition, KubeContainer, KubeContainerStatus } from '../../../lib/k8s/cluster';
 import ConfigMap from '../../../lib/k8s/configMap';
 import { KubeEvent } from '../../../lib/k8s/event';
+import Job from '../../../lib/k8s/job';
 import { KubeObject } from '../../../lib/k8s/KubeObject';
 import { KubeObjectInterface } from '../../../lib/k8s/KubeObject';
 import { KubeObjectClass } from '../../../lib/k8s/KubeObject';
@@ -61,6 +62,7 @@ import {
   DefaultDetailsViewSection,
   DetailsViewSection,
 } from '../../DetailsViewSection/detailsViewSectionSlice';
+import { JobsListRenderer } from '../../job/List';
 import { PodListProps, PodListRenderer } from '../../pod/List';
 import { LightTooltip, Loader, ObjectEventList } from '..';
 import BackLink from '../BackLink';
@@ -176,6 +178,7 @@ export function DetailsGrid<T extends KubeObjectClass>(props: DetailsGridProps<T
         },
       });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item]);
 
   React.useEffect(() => {
@@ -196,6 +199,7 @@ export function DetailsGrid<T extends KubeObjectClass>(props: DetailsGridProps<T
       error,
     };
     onResourceUpdate?.(item as InstanceType<T>, error!);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item, error]);
 
   const actualBackLink: string | Location | undefined = React.useMemo(() => {
@@ -231,6 +235,7 @@ export function DetailsGrid<T extends KubeObjectClass>(props: DetailsGridProps<T
     }
 
     return createRouteURL(route);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item]);
 
   const sections: (DetailsViewSection | ReactNode)[] = [];
@@ -1100,6 +1105,7 @@ export function ContainerEnvironmentVariables(props: EnvironmentVariablesProps) 
   const references = extractEnvVarReferences(container);
 
   // Get unique resource names to fetch
+  // eslint-disable-next-line react-hooks/rules-of-hooks
   const secretsToFetch = React.useMemo(() => {
     const secrets = new Set<string>();
     references.forEach(ref => {
@@ -1110,6 +1116,7 @@ export function ContainerEnvironmentVariables(props: EnvironmentVariablesProps) 
     return Array.from(secrets);
   }, [references]);
 
+  // eslint-disable-next-line react-hooks/rules-of-hooks
   const configMapsToFetch = React.useMemo(() => {
     const configMaps = new Set<string>();
     references.forEach(ref => {
@@ -1121,6 +1128,7 @@ export function ContainerEnvironmentVariables(props: EnvironmentVariablesProps) 
   }, [references]);
 
   // Callbacks to handle fetched resources
+  // eslint-disable-next-line react-hooks/rules-of-hooks
   const handleSecretFetched = React.useCallback(
     (name: string, resource: KubeObject | null, error: ApiError | null) => {
       setFetchedSecrets(prev => {
@@ -1132,6 +1140,7 @@ export function ContainerEnvironmentVariables(props: EnvironmentVariablesProps) 
     []
   );
 
+  // eslint-disable-next-line react-hooks/rules-of-hooks
   const handleConfigMapFetched = React.useCallback(
     (name: string, resource: KubeObject | null, error: ApiError | null) => {
       setFetchedConfigMaps(prev => {
@@ -1144,6 +1153,7 @@ export function ContainerEnvironmentVariables(props: EnvironmentVariablesProps) 
   );
 
   // Copy handler using notistack
+  // eslint-disable-next-line react-hooks/rules-of-hooks
   const handleCopy = React.useCallback(
     (text: string) => {
       navigator.clipboard.writeText(text).then(
@@ -1345,25 +1355,32 @@ export function LivenessProbes(props: { liveness: KubeContainer['livenessProbe']
 
   return (
     <Box display="flex" flexDirection="column">
+      {/* eslint-disable-next-line react-hooks/static-components */}
       <LivenessProbeItem>
         {`http-get, path: ${liveness?.httpGet?.path}, port: ${liveness?.httpGet?.port},
     scheme: ${liveness?.httpGet?.scheme}`}
       </LivenessProbeItem>
+      {/* eslint-disable-next-line react-hooks/static-components */}
       <LivenessProbeItem>
         {liveness?.exec?.command && `exec[${liveness?.exec?.command.join(' ')}]`}
       </LivenessProbeItem>
+      {/* eslint-disable-next-line react-hooks/static-components */}
       <LivenessProbeItem>
         {liveness?.successThreshold && `success = ${liveness?.successThreshold}`}
       </LivenessProbeItem>
+      {/* eslint-disable-next-line react-hooks/static-components */}
       <LivenessProbeItem>
         {liveness?.failureThreshold && `failure = ${liveness?.failureThreshold}`}
       </LivenessProbeItem>
+      {/* eslint-disable-next-line react-hooks/static-components */}
       <LivenessProbeItem>
         {liveness?.initialDelaySeconds && `delay = ${liveness?.initialDelaySeconds}s`}
       </LivenessProbeItem>
+      {/* eslint-disable-next-line react-hooks/static-components */}
       <LivenessProbeItem>
         {liveness?.timeoutSeconds && `timeout = ${liveness?.timeoutSeconds}s`}
       </LivenessProbeItem>
+      {/* eslint-disable-next-line react-hooks/static-components */}
       <LivenessProbeItem>
         {liveness?.periodSeconds && `period = ${liveness?.periodSeconds}s`}
       </LivenessProbeItem>
@@ -1693,11 +1710,16 @@ export function OwnedPodsSection(props: OwnedPodsSectionProps) {
   } else {
     namespace = resource.metadata.namespace;
   }
+  let labelSelector = '';
+  if (resource?.jsonData?.spec?.selector) {
+    labelSelector = labelSelectorToQuery(resource?.jsonData?.spec?.selector);
+  } else if (resource.kind === 'JobSet') {
+    labelSelector = `jobset.sigs.k8s.io/jobset-name=${resource.metadata.name}`;
+  }
+
   const queryData = {
     namespace,
-    labelSelector: resource?.jsonData?.spec?.selector
-      ? labelSelectorToQuery(resource?.jsonData?.spec?.selector)
-      : '',
+    labelSelector,
     fieldSelector: resource.kind === 'Node' ? `spec.nodeName=${resource.metadata.name}` : undefined,
     cluster: resource.cluster,
   };
@@ -1723,6 +1745,42 @@ export function OwnedPodsSection(props: OwnedPodsSectionProps) {
       metrics={podMetrics}
       noNamespaceFilter={hideNamespaceFilter}
       hideCreateButton
+      enableRowActions={resource.kind === 'JobSet' ? false : undefined}
+      enableRowSelection={resource.kind === 'JobSet' ? false : undefined}
+    />
+  );
+}
+
+export interface OwnedJobsSectionProps {
+  resource: KubeObject;
+}
+
+export function OwnedJobsSection(props: OwnedJobsSectionProps) {
+  const { resource } = props;
+
+  if (resource.kind !== 'JobSet') {
+    return null;
+  }
+
+  return <OwnedJobsSectionContent resource={resource} />;
+}
+
+function OwnedJobsSectionContent({ resource }: OwnedJobsSectionProps) {
+  const { items: jobs, errors } = Job.useList({
+    namespace: resource.metadata.namespace,
+    labelSelector: `jobset.sigs.k8s.io/jobset-name=${resource.metadata.name}`,
+    cluster: resource.cluster,
+  });
+
+  return (
+    <JobsListRenderer
+      jobs={jobs}
+      errors={errors}
+      hideColumns={['namespace']}
+      noNamespaceFilter
+      enableRowActions={false}
+      enableRowSelection={false}
+      hideCreateButton
     />
   );
 }
@@ -1742,6 +1800,7 @@ export function ContainersSection(props: { resource: KubeObjectInterface | null 
 
     if (resource.spec) {
       if (resource.spec.containers) {
+        // eslint-disable-next-line react-hooks/immutability
         title = t('Containers');
         containers = resource.spec.containers;
       } else if (resource.spec.template && resource.spec.template.spec) {
