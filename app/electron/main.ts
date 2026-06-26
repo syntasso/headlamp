@@ -137,6 +137,11 @@ const args = yargs(hideBin(process.argv))
       type: 'number',
       default: 4466,
     },
+    'remote-debugging-port': {
+      describe:
+        'Enable Chromium remote debugging on the given port (defaults to 9222 if no port is provided)',
+      type: 'number',
+    },
   })
   .positional('kubeconfig', {
     describe:
@@ -145,6 +150,17 @@ const args = yargs(hideBin(process.argv))
   })
   .help()
   .parseSync();
+
+// Enable Chromium remote debugging only when --remote-debugging-port is explicitly
+// passed (e.g. via the `*:debug` npm scripts). This lets developers attach tooling
+// such as chrome-devtools-mcp to the app. It is opt-in on purpose: enabling it by
+// default would expose an unauthenticated debugging endpoint in production builds.
+if ('remote-debugging-port' in args) {
+  const requestedPort = Number(args['remote-debugging-port']);
+  const remoteDebuggingPort =
+    Number.isInteger(requestedPort) && requestedPort > 0 ? requestedPort : 9222;
+  app.commandLine.appendSwitch('remote-debugging-port', `${remoteDebuggingPort}`);
+}
 
 const isHeadlessMode = args.headless === true;
 let disableGPU = args['disable-gpu'] === true;
@@ -1569,10 +1585,13 @@ function startElectron() {
     });
 
     mainWindow.on('close', event => {
-      if (hasTray && !isQuitting) {
+      if (process.platform === 'darwin' && hasTray && !isQuitting) {
         event.preventDefault();
         mainWindow?.hide();
+        return;
       }
+      isQuitting = true;
+      app.quit();
     });
 
     mainWindow.on('closed', () => {

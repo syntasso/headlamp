@@ -30,22 +30,12 @@ export interface KubeNode extends KubeObjectInterface {
       address: string;
       type: string;
     }[];
-    allocatable?: {
-      cpu: any;
-      memory: any;
-      ephemeralStorage: any;
-      hugepages_1Gi: any;
-      hugepages_2Mi: any;
-      pods: any;
-    };
-    capacity?: {
-      cpu: any;
-      memory: any;
-      ephemeralStorage: any;
-      hugepages_1Gi: any;
-      hugepages_2Mi: any;
-      pods: any;
-    };
+    /**
+     * Resource quantities keyed by their k8s name (e.g. cpu, memory, pods, ephemeral-storage).
+     * Note: keys are kebab-case as returned by the API, not camelCase.
+     */
+    allocatable?: { [key: string]: string };
+    capacity?: { [key: string]: string };
     conditions?: (Omit<KubeCondition, 'lastProbeTime' | 'lastUpdateTime'> & {
       lastHeartbeatTime: string;
     })[];
@@ -73,6 +63,18 @@ export interface KubeNode extends KubeObjectInterface {
   };
 }
 
+/**
+ * The exact label keys checked by {@link Node.getNodePool}.
+ * Export this so test helpers and stories can strip them without drifting.
+ */
+export const NODE_POOL_LABEL_KEYS = [
+  'cloud.google.com/gke-nodepool',
+  'kubernetes.azure.com/agentpool',
+  'eks.amazonaws.com/nodegroup',
+  'kops.k8s.io/instancegroup',
+  'cluster.x-k8s.io/deployment-name',
+] as const;
+
 class Node extends KubeObject<KubeNode> {
   static kind = 'Node';
   static apiName = 'nodes';
@@ -87,7 +89,7 @@ class Node extends KubeObject<KubeNode> {
     return this.jsonData.spec;
   }
 
-  static useMetrics(): [KubeMetrics[] | null, ApiError | null] {
+  static useMetrics(cluster?: string): [KubeMetrics[] | null, ApiError | null] {
     // eslint-disable-next-line react-hooks/rules-of-hooks
     const [nodeMetrics, setNodeMetrics] = React.useState<KubeMetrics[] | null>(null);
     // eslint-disable-next-line react-hooks/rules-of-hooks
@@ -102,7 +104,9 @@ class Node extends KubeObject<KubeNode> {
     }
 
     // eslint-disable-next-line react-hooks/rules-of-hooks
-    useConnectApi(metrics.bind(null, '/apis/metrics.k8s.io/v1beta1/nodes', setMetrics, setError));
+    useConnectApi(
+      metrics.bind(null, '/apis/metrics.k8s.io/v1beta1/nodes', setMetrics, setError, cluster)
+    );
 
     return [nodeMetrics, error];
   }
@@ -136,6 +140,33 @@ class Node extends KubeObject<KubeNode> {
 
   getInternalIP(): string {
     return this.status.addresses?.find(address => address.type === 'InternalIP')?.address || '';
+  }
+
+  /**
+   * Roles derived from the conventional `node-role.kubernetes.io/<role>` labels.
+   *
+   * @see {@link https://kubernetes.io/docs/reference/labels-annotations-taints/#node-role-kubernetes-io}
+   */
+  getRoles(): string[] {
+    const labels = this.metadata?.labels ?? {};
+    const rolePrefix = 'node-role.kubernetes.io/';
+    return Object.keys(labels)
+      .filter(key => key.startsWith(rolePrefix))
+      .map(key => key.slice(rolePrefix.length));
+  }
+
+  /**
+   * Returns the node pool name from well-known cloud provider labels.
+   * Supports GKE, AKS, EKS, kOps, and Cluster API.
+   */
+  getNodePool(): string {
+    const labels = this.metadata.labels ?? {};
+    for (const key of NODE_POOL_LABEL_KEYS) {
+      if (labels[key] !== undefined) {
+        return labels[key];
+      }
+    }
+    return '';
   }
 }
 
