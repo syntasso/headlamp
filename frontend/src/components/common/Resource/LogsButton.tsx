@@ -35,11 +35,11 @@ import { makeUrl } from '../../../lib/k8s/api/v2/makeUrl';
 import { KubeContainerStatus } from '../../../lib/k8s/cluster';
 import DaemonSet from '../../../lib/k8s/daemonSet';
 import Deployment from '../../../lib/k8s/deployment';
+import Job from '../../../lib/k8s/job';
 import { KubeObject } from '../../../lib/k8s/KubeObject';
 import Pod from '../../../lib/k8s/pod';
 import ReplicaSet from '../../../lib/k8s/replicaSet';
 import StatefulSet from '../../../lib/k8s/statefulSet';
-import Job from '../../../lib/k8s/job';
 import {
   EventStatus,
   HeadlampEvent,
@@ -64,7 +64,7 @@ export const LOGGABLE_WORKLOAD_KINDS: ReadonlySet<string> = new Set([
   'ReplicaSet',
   'DaemonSet',
   'StatefulSet',
-  "Job",
+  'Job',
 ]);
 
 // Kind + apiGroup check via KubeObject.isClassOf — cross-bundle safe, unlike
@@ -162,29 +162,26 @@ function allContainers(pod: Pod): string[] {
   async function getRelatedPods(): Promise<Pod[]> {
     if (isLoggableWorkload(item)) {
       try {
-        let labelSelector = '';
-        const ns = item.metadata.namespace;
-        const cluster = item.cluster;
+        const labelSelector =
+          Job.isClassOf(item) && !item.spec.selector
+            ? `batch.kubernetes.io/job-name=${item.metadata.name}`
+            : labelSelectorToQuery(item.spec.selector);
 
-        if (item instanceof Job) {
-          const jobName = item.getName();
-          labelSelector = `batch.kubernetes.io/job-name=${jobName}`;
-        } else {
-
-          labelSelector = labelSelectorToQuery(item.spec.selector);
-          if (!labelSelector) {
+        if (!labelSelector) {
           throw new Error(
             t('translation|No label selectors found for this {{type}}', {
               type: item.kind.toLowerCase(),
             })
           );
         }
-        }
+
+        const queryParams = { labelSelector };
+
 
         const response = await clusterFetch(
-          `/api/v1/namespaces/${ns}/pods?labelSelector=${encodeURIComponent(labelSelector)}`,
-          { cluster }
-        ).then(r => r.json());
+          makeUrl(`/api/v1/namespaces/${item.metadata.namespace}/pods`, queryParams),
+          { cluster: item.cluster }
+        ).then(it => it.json());
 
         if (!response?.items) {
           throw new Error(t('translation|Invalid response from server'));
