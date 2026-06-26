@@ -155,12 +155,35 @@ export const monochromeLightTheme: AppTheme = {
   buttonTextTransform: 'none',
 };
 
-const defaultAppThemes = [
-  lightTheme,
-  darkTheme,
-  headlampClassicLightTheme,
-  lightsOutTheme,
-  monochromeLightTheme,
-];
+export const syntassoTheme: AppTheme = {
+  name: 'syntasso',
+  base: 'light',
+  primary: '#a726bc',
+  secondary: '#eff2f5',
+  text: {
+    primary: '#44444f',
+  },
+  background: {
+    muted: '#f5f5f5',
+  },
+  sidebar: {
+    background: '#514da1',
+    color: '#f5f5f5',
+    selectedBackground: '#a726bc',
+    selectedColor: '#f5f5f5',
+    actionBackground: '#a726bc',
+  },
+  navbar: {
+    background: '#514da1',
+    color: '#f5f5f5',
+  },
+  link: {
+    color: '#a726bc',
+  },
+  buttonTextTransform: 'none',
+  radius: 6,
+};
+
+const defaultAppThemes = [syntassoTheme, darkTheme, lightsOutTheme];
 
 export default defaultAppThemes;

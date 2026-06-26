@@ -641,12 +641,12 @@ export function getThemeName(backendConfig?: {
 
   // Fallback to OS preference
   if (prefersLight) {
-    return 'light';
+    return 'syntasso';
   } else if (prefersDark) {
     return 'dark';
   }
 
-  return 'light';
+  return 'syntasso';
 }
 
 export function setTheme(themeName: string) {

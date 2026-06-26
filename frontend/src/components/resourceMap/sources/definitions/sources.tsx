@@ -180,6 +180,7 @@ export function useGetAllSources(): GraphSource[] {
           makeKubeSource(CronJob),
           makeKubeSource(JobSet),
         ],
+        isEnabledByDefault: false,
       },
       {
         id: 'storage',
@@ -193,6 +194,7 @@ export function useGetAllSources(): GraphSource[] {
           />
         ),
         sources: [makeKubeSource(PersistentVolumeClaim)],
+        isEnabledByDefault: false,
       },
       {
         id: 'cluster',
@@ -222,6 +224,7 @@ export function useGetAllSources(): GraphSource[] {
           makeKubeSource(IngressClass),
           makeKubeSource(NetworkPolicy),
         ],
+        isEnabledByDefault: false,
       },
       {
         id: 'security',
