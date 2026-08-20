@@ -97,10 +97,17 @@ func TestParseBasic(t *testing.T) {
 		},
 		{
 			name: "with_args",
-			args: []string{"go run ./cmd", "--port=3456", "--pod-debug-image=registry.example.com/debug:latest"},
+			args: []string{
+				"go run ./cmd", "--port=3456",
+				"--pod-debug-image=registry.example.com/debug:latest",
+				"--node-shell-image=registry.example.com/shell:latest",
+				"--node-shell-namespace=custom-ns",
+			},
 			verify: func(t *testing.T, conf *config.Config) {
 				assert.Equal(t, uint(3456), conf.Port)
 				assert.Equal(t, "registry.example.com/debug:latest", conf.PodDebugImage)
+				assert.Equal(t, "registry.example.com/shell:latest", conf.NodeShellImage)
+				assert.Equal(t, "custom-ns", conf.NodeShellNamespace)
 				assert.Equal(t, config.DefaultMeUsernamePath, conf.MeUsernamePath)
 			},
 		},
@@ -226,19 +233,46 @@ var ParseWithEnvTests = []struct {
 			assert.Equal(t, "X-Env-Token-Header", conf.ProxyAuthTokenHeader)
 		},
 	},
+	{
+		name: "watch_plugins_changes_env_kept_in_cluster",
+		args: []string{"go run ./cmd", "--in-cluster"},
+		env: map[string]string{
+			"HEADLAMP_CONFIG_WATCH_PLUGINS_CHANGES": "true",
+		},
+		verify: func(t *testing.T, conf *config.Config) {
+			assert.Equal(t, true, conf.WatchPluginsChanges)
+		},
+	},
+	{
+		name: "watch_plugins_changes_env_kept_in_cluster_from_env",
+		args: []string{"go run ./cmd"},
+		env: map[string]string{
+			"HEADLAMP_CONFIG_IN_CLUSTER":            "true",
+			"HEADLAMP_CONFIG_WATCH_PLUGINS_CHANGES": "true",
+		},
+		verify: func(t *testing.T, conf *config.Config) {
+			assert.Equal(t, true, conf.InCluster)
+			assert.Equal(t, true, conf.WatchPluginsChanges)
+		},
+	},
+	{
+		name: "watch_plugins_changes_env_false_kept_in_cluster",
+		args: []string{"go run ./cmd", "--in-cluster"},
+		env: map[string]string{
+			"HEADLAMP_CONFIG_WATCH_PLUGINS_CHANGES": "false",
+		},
+		verify: func(t *testing.T, conf *config.Config) {
+			assert.Equal(t, false, conf.WatchPluginsChanges)
+		},
+	},
 }
 
 func TestParseWithEnv(t *testing.T) {
 	for _, tt := range ParseWithEnvTests {
 		t.Run(tt.name, func(t *testing.T) {
 			for key, value := range tt.env {
-				require.NoError(t, os.Setenv(key, value))
+				t.Setenv(key, value)
 			}
-			defer func(env map[string]string) {
-				for key := range env {
-					require.NoError(t, os.Unsetenv(key))
-				}
-			}(tt.env)
 
 			conf, err := config.Parse(tt.args)
 			require.NoError(t, err)

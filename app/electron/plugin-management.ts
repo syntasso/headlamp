@@ -42,6 +42,35 @@ import envPaths from './env-paths';
 // }
 
 /**
+ * TLS certificate error codes that indicate a certificate verification failure.
+ */
+const TLS_ERROR_CODES = [
+  'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
+  'SELF_SIGNED_CERT_IN_CHAIN',
+  'CERT_UNTRUSTED',
+  'CERT_REJECTED',
+];
+
+/**
+ * Extracts TLS error code from an error object.
+ * Checks both err.code directly and err.cause.code for TLS error codes.
+ *
+ * @param err - The error object to extract the code from
+ * @param tlsErrorCodes - Array of TLS error codes to match against
+ * @returns The TLS error code if found, undefined otherwise
+ */
+function extractTlsErrorCode(err: unknown, tlsErrorCodes: string[]): string | undefined {
+  if (!(err instanceof Error)) return undefined;
+  const directCode = 'code' in err ? (err as { code?: string }).code : undefined;
+  const causeCode =
+    err.cause && typeof err.cause === 'object' && 'code' in err.cause
+      ? (err.cause as { code: string }).code
+      : undefined;
+  const code = directCode ?? causeCode;
+  return code && tlsErrorCodes.includes(code) ? code : undefined;
+}
+
+/**
  * `ProgressResp` is an interface for progress response.
  *
  * @interface
@@ -284,7 +313,7 @@ export class PluginManager {
       }
 
       // remove the existing plugin folder
-      fs.rmdirSync(pluginDir, { recursive: true });
+      fs.rmSync(pluginDir, { recursive: true, force: true });
 
       // create the plugin folder
       fs.mkdirSync(pluginDir, { recursive: true });
@@ -332,7 +361,7 @@ export class PluginManager {
       }
 
       if (fs.existsSync(pluginDir)) {
-        fs.rmdirSync(pluginDir, { recursive: true });
+        fs.rmSync(pluginDir, { recursive: true, force: true });
       } else {
         throw new Error('Plugin not found');
       }
@@ -654,7 +683,7 @@ async function downloadExtraFiles(
       // remove the input file folder... if it's empty
       const inputDir = path.dirname(inputFile);
       if (fs.readdirSync(inputDir).length === 0) {
-        fs.rmdirSync(inputDir);
+        fs.rmSync(inputDir);
       }
 
       if (progressCallback) {
@@ -713,11 +742,19 @@ async function downloadAndExtractSingleArchive(
   }
 
   // await sleep(4000); // comment out for testing
-  let archResponse;
+  let archResponse: Awaited<ReturnType<typeof fetch>>;
 
   try {
     archResponse = await fetch(archiveURL, { redirect: 'follow', signal });
   } catch (err) {
+    const tlsCode = extractTlsErrorCode(err, TLS_ERROR_CODES);
+    if (tlsCode) {
+      throw new Error(
+        `TLS certificate verification failed (${tlsCode}). This may be due to a corporate TLS-inspecting proxy. ` +
+          'Ensure the proxy root CA is trusted by your OS certificate store, or configure a custom CA bundle (settings.json: customCAPath).',
+        { cause: err }
+      );
+    }
     throw new Error('Failed to fetch archive. Please check the URL and your network connection.');
   }
 
@@ -944,7 +981,21 @@ async function fetchPluginInfo(
     if (progressCallback) {
       progressCallback({ type: 'info', message: 'Fetching Plugin Metadata' });
     }
-    const response = await fetch(apiURL, { redirect: 'follow', signal });
+    let response: Awaited<ReturnType<typeof fetch>>;
+    try {
+      response = await fetch(apiURL, { redirect: 'follow', signal });
+    } catch (err) {
+      const tlsCode = extractTlsErrorCode(err, TLS_ERROR_CODES);
+      if (tlsCode) {
+        throw new Error(
+          `TLS certificate verification failed (${tlsCode}). This may be due to a corporate TLS-inspecting proxy. ` +
+            'Ensure the proxy root CA is trusted by your OS certificate store, or configure a custom CA bundle (settings.json: customCAPath).',
+          { cause: err }
+        );
+      }
+      throw new Error('Failed to fetch plugin metadata. Please check your network connection.');
+    }
+
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }

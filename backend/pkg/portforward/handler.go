@@ -57,6 +57,8 @@ const (
 	PortForwardReadinessTimeout = 30 * time.Second
 )
 
+var inFlightPortForwards sync.Map
+
 type portForwardRequest struct {
 	ID               string `json:"id"`
 	Namespace        string `json:"namespace"`
@@ -92,6 +94,7 @@ type portForward struct {
 	ServiceNamespace string `json:"serviceNamespace"`
 	Namespace        string `json:"namespace"`
 	Cluster          string `json:"cluster"`
+	cacheKey         string `json:"-"`
 	Port             string `json:"port"`
 	TargetPort       string `json:"targetPort"`
 	Status           string `json:"status"`
@@ -151,6 +154,38 @@ func StartPortForward(kubeConfigStore kubeconfig.ContextStore, cache cache.Cache
 		p.ID = uuid.New().String()
 	}
 
+	userID := r.Header.Get("X-HEADLAMP-USER-ID")
+	requestClusterName := mux.Vars(r)["clusterName"]
+	clusterName := requestClusterName
+
+	if userID != "" {
+		clusterName += userID
+	}
+
+	// Ensure we don't orphan an existing port-forward by overwriting its cache entry.
+	// This check happens before any resource allocation or blocking code so duplicates short-circuit
+	// deterministically and avoid unnecessary listener churn.
+	if existingPF, err := getPortForwardByID(cache, clusterName, p.ID); err == nil && existingPF.Status == RUNNING {
+		//nolint:goconst
+		logger.Log(logger.LevelError, map[string]string{"cluster": clusterName, "id": p.ID},
+			nil, "portforward ID already exists")
+		http.Error(w, "portforward with this ID is already running", http.StatusConflict)
+
+		return
+	}
+
+	// Reject duplicates before any resource-consuming work (port alloc, kubeconfig lookup).
+	inFlightKey := strings.Join([]string{requestClusterName, userID, p.ID}, "\x00")
+	if _, loaded := inFlightPortForwards.LoadOrStore(inFlightKey, struct{}{}); loaded {
+		logger.Log(logger.LevelError, map[string]string{"cluster": clusterName, "id": p.ID},
+			nil, "portforward ID is already starting")
+		http.Error(w, "portforward with this ID is already starting", http.StatusConflict)
+
+		return
+	}
+
+	defer inFlightPortForwards.Delete(inFlightKey)
+
 	if err := p.Validate(); err != nil {
 		logger.Log(logger.LevelError, nil, err, "validating portforward payload")
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -170,18 +205,11 @@ func StartPortForward(kubeConfigStore kubeconfig.ContextStore, cache cache.Cache
 		p.Port = strconv.Itoa(freePort)
 	}
 
-	userID := r.Header.Get("X-HEADLAMP-USER-ID")
-	requestClusterName := mux.Vars(r)["clusterName"]
-	clusterName := requestClusterName
-
-	if userID != "" {
-		clusterName += userID
-	}
-
 	kContext, err := kubeConfigStore.GetContext(clusterName)
 	if err != nil {
 		logger.Log(logger.LevelError, map[string]string{"cluster": clusterName},
 			err, "getting kubeconfig context")
+
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 
 		return
@@ -192,9 +220,10 @@ func StartPortForward(kubeConfigStore kubeconfig.ContextStore, cache cache.Cache
 		token, _ = auth.GetTokenFromCookie(r, requestClusterName)
 	}
 
-	err = startPortForward(kContext, cache, p, token, clusterName)
+	err = startPortForward(kContext, cache, p, token, clusterName, requestClusterName)
 	if err != nil {
 		logger.Log(logger.LevelError, nil, err, "starting portforward")
+
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 
 		return
@@ -592,7 +621,7 @@ func runAndMonitorPortForward(
 // startPortForward starts a port forward. This is the internal function that was refactored.
 // It sets up Kubernetes clients, initializes the port forwarder, and manages its lifecycle.
 func startPortForward(kContext *kubeconfig.Context, cache cache.Cache[interface{}],
-	p portForwardRequest, token string, clusterName string,
+	p portForwardRequest, token string, clusterName string, requestClusterName string,
 ) error {
 	clientset, rConf, err := getKubeClientAndConfig(kContext, token)
 	if err != nil {
@@ -628,7 +657,8 @@ func startPortForward(kContext *kubeconfig.Context, cache cache.Cache[interface{
 		ID:               p.ID,
 		closeChan:        stopChan,
 		Pod:              p.Pod,
-		Cluster:          clusterName,
+		Cluster:          requestClusterName,
+		cacheKey:         clusterName,
 		Namespace:        p.Namespace,
 		Service:          p.Service,
 		ServiceNamespace: p.ServiceNamespace,

@@ -25,7 +25,7 @@ import Deployment from '../../../lib/k8s/deployment';
 import { KubeObject } from '../../../lib/k8s/KubeObject';
 import ReplicaSet from '../../../lib/k8s/replicaSet';
 import StatefulSet from '../../../lib/k8s/statefulSet';
-import { TestContext } from '../../../test';
+import { API_BASE, TestContext } from '../../../test';
 import ActionsNotifier from '../ActionsNotifier';
 import ResourceTableMultiActions from './ResourceTableMultiActions';
 
@@ -47,12 +47,11 @@ export default {
       handlers: {
         story: [
           http.post(
-            'http://localhost:4466/clusters/local/apis/authorization.k8s.io/v1/selfsubjectaccessreviews',
+            `${API_BASE}/clusters/local/apis/authorization.k8s.io/v1/selfsubjectaccessreviews`,
             () => HttpResponse.json({ status: { allowed: true, reason: '', code: 200 } })
           ),
-          http.post(
-            'http://localhost:4466/apis/authorization.k8s.io/v1/selfsubjectaccessreviews',
-            () => HttpResponse.json({ status: { allowed: true, reason: '', code: 200 } })
+          http.post(`${API_BASE}/apis/authorization.k8s.io/v1/selfsubjectaccessreviews`, () =>
+            HttpResponse.json({ status: { allowed: true, reason: '', code: 200 } })
           ),
         ],
       },
@@ -207,7 +206,7 @@ export const ScaleDialogCancel: StoryObj = {
 
     await waitFor(() => expect(screen.getByRole('dialog', { name: 'Scale items' })).toBeVisible());
 
-    await userEvent.click(screen.getByRole('button', { name: 'cancel-button' }));
+    await userEvent.click(screen.getByTestId('cancel-button'));
 
     await waitFor(() =>
       expect(screen.queryByRole('dialog', { name: 'Scale items' })).not.toBeInTheDocument()
@@ -236,7 +235,7 @@ export const ScaleMultipleConfirm: StoryObj = {
     expect(screen.getByText(/statefulset/i)).toBeVisible();
     expect(screen.getByText(/replicaset/i)).toBeVisible();
 
-    await userEvent.click(screen.getByRole('button', { name: 'confirm-button' }));
+    await userEvent.click(screen.getByTestId('confirm-button'));
 
     await waitFor(() =>
       expect(screen.queryByRole('dialog', { name: 'Scale items' })).not.toBeInTheDocument()
@@ -274,7 +273,7 @@ export const DeleteConfirmationDialogCancel: StoryObj = {
 
     await waitFor(() => expect(screen.getByRole('dialog', { name: 'Delete items' })).toBeVisible());
 
-    await userEvent.click(screen.getByLabelText('cancel-button'));
+    await userEvent.click(screen.getByTestId('cancel-button'));
 
     await waitFor(() =>
       expect(screen.queryByRole('dialog', { name: 'Delete items' })).not.toBeInTheDocument()
@@ -295,7 +294,7 @@ export const DeleteConfirmationDialogConfirm: StoryObj = {
 
     await waitFor(() => expect(screen.getByRole('dialog', { name: 'Delete items' })).toBeVisible());
 
-    await userEvent.click(screen.getByLabelText('confirm-button'));
+    await userEvent.click(screen.getByTestId('confirm-button'));
 
     await waitFor(() =>
       expect(screen.queryByRole('dialog', { name: 'Delete items' })).not.toBeInTheDocument()
@@ -337,7 +336,7 @@ export const RestartConfirmationDialogCancel: StoryObj = {
       expect(screen.getByRole('dialog', { name: 'Restart items' })).toBeVisible()
     );
 
-    await userEvent.click(screen.getByLabelText('cancel-button'));
+    await userEvent.click(screen.getByTestId('cancel-button'));
 
     await waitFor(() =>
       expect(screen.queryByRole('dialog', { name: 'Restart items' })).not.toBeInTheDocument()
@@ -368,7 +367,7 @@ export const RestartMultipleConfirm: StoryObj = {
     expect(screen.getByText(/statefulset/i)).toBeVisible();
     expect(screen.getByText(/daemonset/i)).toBeVisible();
 
-    await userEvent.click(screen.getByLabelText('confirm-button'));
+    await userEvent.click(screen.getByTestId('confirm-button'));
 
     await waitFor(() =>
       expect(screen.queryByRole('dialog', { name: 'Restart items' })).not.toBeInTheDocument()
@@ -389,7 +388,7 @@ export const DeleteConfirmationDialogError: StoryObj = {
 
     await waitFor(() => expect(screen.getByRole('dialog', { name: 'Delete items' })).toBeVisible());
 
-    await userEvent.click(screen.getByLabelText('confirm-button'));
+    await userEvent.click(screen.getByTestId('confirm-button'));
 
     await waitFor(() =>
       expect(screen.queryByRole('dialog', { name: 'Delete items' })).not.toBeInTheDocument()
@@ -419,7 +418,7 @@ export const RestartConfirmationDialogError: StoryObj = {
       expect(screen.getByRole('dialog', { name: 'Restart items' })).toBeVisible()
     );
 
-    await userEvent.click(screen.getByLabelText('confirm-button'));
+    await userEvent.click(screen.getByTestId('confirm-button'));
 
     await waitFor(() =>
       expect(screen.queryByRole('dialog', { name: 'Restart items' })).not.toBeInTheDocument()

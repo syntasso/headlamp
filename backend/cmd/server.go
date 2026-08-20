@@ -115,6 +115,8 @@ func buildHeadlampCFG(conf *config.Config, kubeConfigStore kubeconfig.ContextSto
 		TLSKeyPath:                            conf.TLSKeyPath,
 		SessionTTL:                            conf.SessionTTL,
 		PodDebugImage:                         conf.PodDebugImage,
+		NodeShellImage:                        conf.NodeShellImage,
+		NodeShellNamespace:                    conf.NodeShellNamespace,
 		OidcUseCookie:                         conf.OidcUseCookie,
 		DefaultLightTheme:                     conf.DefaultLightTheme,
 		DefaultDarkTheme:                      conf.DefaultDarkTheme,
@@ -173,7 +175,7 @@ func setupKubeConfigStoreWatcher(kubeConfigStore kubeconfig.ContextStore) {
 				return
 			}
 
-			k8cache.SyncWatchers(active)
+			k8cache.SyncWatchers(k8sResponseCache, active)
 		})
 	})
 }
@@ -285,6 +287,11 @@ func cacheMiddlewareHandler(c *HeadlampConfig, next http.Handler, w http.Respons
 		return
 	}
 
+	if !k8cache.IsKubernetesAPIPath(r.URL.Path) || k8cache.IsSelfSubjectReviewAPIPath(r.URL.Path) {
+		next.ServeHTTP(w, r)
+		return
+	}
+
 	ctx, span, contextKey, kContext, err := GetContextKeyAndKContext(w, r, c)
 	if err != nil {
 		return
@@ -318,7 +325,7 @@ func cacheMiddlewareHandler(c *HeadlampConfig, next http.Handler, w http.Respons
 
 	next.ServeHTTP(rcw, r)
 
-	if err := k8cache.StoreK8sResponseInCache(k8sResponseCache, r.URL, rcw, r, key); err != nil {
+	if err := k8cache.StoreK8sResponseInCache(k8sResponseCache, r.URL, rcw, key); err != nil {
 		// Response was already written to client via rcw; just log the cache storage error
 		logger.Log(logger.LevelError, nil, err, "failed to store response in cache")
 	}
@@ -340,7 +347,7 @@ func handleCacheAuthorization(
 		clearRequestAuthorization(r)
 	}
 
-	isAllowed, authErr := k8cache.IsAllowed(kContext, r)
+	isAllowed, authErr := k8cache.IsAllowed(contextKey, kContext, r)
 	if authErr != nil {
 		k8cache.ServeFromCacheOrForwardToK8s(k8sResponseCache, isAllowed, next, key, w, r, rcw)
 

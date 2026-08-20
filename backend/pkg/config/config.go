@@ -62,6 +62,8 @@ type Config struct {
 	BaseURL                string `koanf:"base-url"`
 	SessionTTL             int    `koanf:"session-ttl"`
 	PodDebugImage          string `koanf:"pod-debug-image"`
+	NodeShellImage         string `koanf:"node-shell-image"`
+	NodeShellNamespace     string `koanf:"node-shell-namespace"`
 	ProxyURLs              string `koanf:"proxy-urls"`
 
 	ClusterInventoryProviderFile          string        `koanf:"cluster-inventory-provider-file"`
@@ -328,9 +330,9 @@ func unmarshalConfig(k *koanf.Koanf, config *Config) error {
 	return nil
 }
 
-// patchWatchPluginsChanges disables plugin watching if running in-cluster and user didn't set the flag.
-func patchWatchPluginsChanges(config *Config, explicitFlags map[string]bool) {
-	if config.InCluster && !explicitFlags["watch-plugins-changes"] {
+// patchWatchPluginsChanges disables plugin watching if running in-cluster and user didn't set the flag or env var.
+func patchWatchPluginsChanges(config *Config, explicitFlags map[string]bool, watchPluginsChangesEnvSet bool) {
+	if config.InCluster && !explicitFlags["watch-plugins-changes"] && !watchPluginsChangesEnvSet {
 		config.WatchPluginsChanges = false
 	}
 }
@@ -427,6 +429,8 @@ func Parse(args []string) (*Config, error) {
 	explicitFlags := recordExplicitFlags(f)
 
 	// 4. Load config from environment variables.
+	_, watchPluginsChangesEnvSet := os.LookupEnv("HEADLAMP_CONFIG_WATCH_PLUGINS_CHANGES")
+
 	if err := loadConfigFromEnv(k); err != nil {
 		return nil, err
 	}
@@ -442,7 +446,7 @@ func Parse(args []string) (*Config, error) {
 	}
 
 	// 7. Post-process: patch plugin flag and kubeconfig path.
-	patchWatchPluginsChanges(&config, explicitFlags)
+	patchWatchPluginsChanges(&config, explicitFlags, watchPluginsChangesEnvSet)
 
 	if err := setKubeConfigPath(&config); err != nil {
 		return nil, err
@@ -492,7 +496,7 @@ func MakeHeadlampKubeConfigsDir() (string, error) {
 		return filepath.Dir(ex), nil
 	}
 
-	return "", fmt.Errorf("failed to get default kubeconfig persistence directory: %v", err)
+	return "", fmt.Errorf("failed to get default kubeconfig persistence directory: %w", err)
 }
 
 func DefaultHeadlampKubeConfigFile() (string, error) {
@@ -537,7 +541,10 @@ func flagset() *flag.FlagSet {
 func addGeneralFlags(f *flag.FlagSet) {
 	f.Bool("version", false, "Print version information and exit")
 	f.Bool("in-cluster", false, "Set when running from a k8s cluster")
-	f.String("in-cluster-context-name", "main", "Name to use for the in-cluster Kubernetes context")
+	f.String("in-cluster-context-name", "",
+		"Name to use for the in-cluster Kubernetes context. "+
+			"If unset, it is derived from the kube-system/kubeadm-config ConfigMap (treating \"kubernetes\" as unset), "+
+			"falling back to \"main\"")
 	f.Bool("dev", false, "Allow connections from other origins")
 	f.Bool("cache-enabled", false, "K8s cache in backend")
 	f.Bool("no-browser", false, "Disable automatically opening the browser when using embedded frontend")
@@ -559,6 +566,8 @@ func addGeneralFlags(f *flag.FlagSet) {
 	f.Int("session-ttl", defaultSessionTTL, "The time in seconds for the session to be valid"+
 		"(Default: 86400/24h, Min: 1 , Max: 31536000/1yr )")
 	f.String("pod-debug-image", "", "Default image to use when creating pod debug containers")
+	f.String("node-shell-image", "", "Default image to use when creating node shell pods")
+	f.String("node-shell-namespace", "", "Default namespace to use when creating node shell pods")
 	f.String("listen-addr", "", "Address to listen on; default is empty, which means listening to any address")
 	f.Uint("port", defaultPort, "Port to listen from")
 	f.String("proxy-urls", "", "Allow proxy requests to specified URLs")

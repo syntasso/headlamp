@@ -1,6 +1,7 @@
 package kubeconfig
 
 import (
+	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -342,7 +344,7 @@ func (c *Context) OidcConfig() (*OidcConfig, error) {
 		return c.OidcConf, nil
 	}
 
-	if c.AuthInfo.AuthProvider == nil {
+	if c.AuthInfo == nil || c.AuthInfo.AuthProvider == nil {
 		return nil, errors.New("authProvider is nil")
 	}
 
@@ -478,14 +480,14 @@ type ContextLoadError struct {
 func LoadContextsFromFile(kubeConfigPath string, source int) ([]Context, []ContextLoadError, error) {
 	data, err := os.ReadFile(kubeConfigPath) //nolint:gosec
 	if err != nil {
-		return nil, nil, fmt.Errorf("error reading kubeconfig file: %v", err)
+		return nil, nil, fmt.Errorf("error reading kubeconfig file: %w", err)
 	}
 
 	skipProxySetup := source != KubeConfig
 
 	contexts, contextErrors, err := loadContextsFromData(data, source, skipProxySetup)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error loading contexts from file: %v", err)
+		return nil, nil, fmt.Errorf("error loading contexts from file: %w", err)
 	}
 
 	// add the KubeConfigPath to each context
@@ -505,7 +507,7 @@ func LoadContextsFromFile(kubeConfigPath string, source int) ([]Context, []Conte
 func LoadContextsFromBase64String(kubeConfig string, source int) ([]Context, []ContextLoadError, error) {
 	kubeConfigByte, err := base64.StdEncoding.DecodeString(kubeConfig)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error decoding base64 kubeconfig: %v", err)
+		return nil, nil, fmt.Errorf("error decoding base64 kubeconfig: %w", err)
 	}
 
 	skipProxySetup := source != KubeConfig
@@ -1053,6 +1055,61 @@ func resolveServiceAccountTokenPath(clusterConfig *rest.Config, serviceAccountTo
 	return "/var/run/secrets/kubernetes.io/serviceaccount/token" // #nosec G101
 }
 
+// deriveInClusterNameTimeout bounds the kubeadm-config lookup so it cannot block startup indefinitely.
+const deriveInClusterNameTimeout = 2 * time.Second
+
+// deriveInClusterName reads the cluster name from the kube-system/kubeadm-config
+// ConfigMap, which kubeadm and KiND populate at creation time. It returns an error
+// when the ConfigMap, the ClusterConfiguration key, or the clusterName field is missing
+// (or when clusterName is kubeadm's default "kubernetes").
+func deriveInClusterName(ctx context.Context, clientset kubernetes.Interface) (string, error) {
+	cm, err := clientset.CoreV1().ConfigMaps("kube-system").Get(ctx, "kubeadm-config", metav1.GetOptions{})
+	if err != nil {
+		return "", err
+	}
+
+	clusterConfiguration, ok := cm.Data["ClusterConfiguration"]
+	if !ok {
+		return "", errors.New("kubeadm-config ConfigMap has no ClusterConfiguration entry")
+	}
+
+	var parsed struct {
+		ClusterName string `yaml:"clusterName"`
+	}
+
+	if err := yaml.Unmarshal([]byte(clusterConfiguration), &parsed); err != nil {
+		return "", fmt.Errorf("parsing kubeadm ClusterConfiguration: %w", err)
+	}
+
+	name := strings.TrimSpace(parsed.ClusterName)
+	if name == "" || strings.EqualFold(name, "kubernetes") {
+		return "", errors.New("kubeadm ClusterConfiguration clusterName is empty or default (kubernetes)")
+	}
+
+	return name, nil
+}
+
+func deriveInClusterContextName(clusterConfig *rest.Config) string {
+	clientset, err := kubernetes.NewForConfig(clusterConfig)
+	if err != nil {
+		logger.Log(logger.LevelInfo, nil, err, "deriving in-cluster context name: creating clientset")
+
+		return ""
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), deriveInClusterNameTimeout)
+	defer cancel()
+
+	name, err := deriveInClusterName(ctx, clientset)
+	if err != nil {
+		logger.Log(logger.LevelInfo, nil, err, "deriving in-cluster context name from kubeadm-config")
+
+		return ""
+	}
+
+	return name
+}
+
 // GetInClusterContext returns the in-cluster context.
 func GetInClusterContext(
 	contextName string,
@@ -1067,6 +1124,10 @@ func GetInClusterContext(
 	clusterConfig, err := rest.InClusterConfig()
 	if err != nil {
 		return nil, err
+	}
+
+	if strings.TrimSpace(contextName) == "" {
+		contextName = deriveInClusterContextName(clusterConfig)
 	}
 
 	return newInClusterContextFromConfig(
@@ -1184,7 +1245,7 @@ func LoadAndStoreKubeConfigs(kubeConfigStore ContextStore, kubeConfigs string, s
 
 	kubeConfigContexts, contextErrors, err := LoadContextsFromMultipleFiles(kubeConfigs, source)
 	if err != nil {
-		return fmt.Errorf("error loading kubeconfig files: %v", err)
+		return fmt.Errorf("error loading kubeconfig files: %w", err)
 	}
 
 	// if pass the shouldBeSkippedFunc=nil, it works like before
@@ -1207,7 +1268,7 @@ func LoadAndStoreKubeConfigs(kubeConfigStore ContextStore, kubeConfigs string, s
 	}
 
 	for _, contextError := range contextErrors {
-		errs = append(errs, fmt.Errorf("error in context %s: %v", contextError.ContextName, contextError.Error))
+		errs = append(errs, fmt.Errorf("error in context %s: %w", contextError.ContextName, contextError.Error))
 	}
 
 	return errors.Join(errs...)

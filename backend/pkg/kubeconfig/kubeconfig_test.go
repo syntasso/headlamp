@@ -3,6 +3,7 @@ package kubeconfig_test
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,7 +13,6 @@ import (
 
 	"github.com/kubernetes-sigs/headlamp/backend/pkg/config"
 	"github.com/kubernetes-sigs/headlamp/backend/pkg/kubeconfig"
-	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -326,6 +326,16 @@ users:
 		// Verify CA certificate is nil when not provided
 		assert.Nil(t, oidcConfig.CACert, "Expected CA certificate to be nil when not provided")
 	})
+}
+
+func TestOidcConfigWithNilAuthInfo(t *testing.T) {
+	context := &kubeconfig.Context{AuthInfo: nil}
+
+	oidcConfig, err := context.OidcConfig()
+
+	require.Error(t, err, "Expected an error when AuthInfo is nil")
+	assert.Nil(t, oidcConfig, "Expected nil OIDC config when AuthInfo is nil")
+	assert.EqualError(t, err, "authProvider is nil")
 }
 
 // createTempKubeconfig creates a temporary kubeconfig file for testing.
@@ -1035,4 +1045,47 @@ users:
 			}
 		})
 	})
+}
+
+func TestContextAuthType(t *testing.T) {
+	tests := []struct {
+		name     string
+		context  *kubeconfig.Context
+		expected string
+	}{
+		{
+			name: "OIDC configuration present",
+			context: &kubeconfig.Context{
+				OidcConf: &kubeconfig.OidcConfig{},
+			},
+			expected: "oidc",
+		},
+		{
+			name: "AuthProvider present",
+			context: &kubeconfig.Context{
+				AuthInfo: &api.AuthInfo{
+					AuthProvider: &api.AuthProviderConfig{},
+				},
+			},
+			expected: "oidc",
+		},
+		{
+			name: "No auth configuration",
+			context: &kubeconfig.Context{
+				AuthInfo: &api.AuthInfo{},
+			},
+			expected: "",
+		},
+		{
+			name:     "Nil auth info and oidc config",
+			context:  &kubeconfig.Context{},
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.context.AuthType())
+		})
+	}
 }
