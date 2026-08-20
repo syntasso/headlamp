@@ -15,10 +15,35 @@
  */
 
 /// <reference types="node" />
+import { AxeBuilder } from '@axe-core/playwright';
 import { expect, Page } from '@playwright/test';
 
 export class HeadlampPage {
   constructor(private page: Page) {}
+
+  async a11y() {
+    // Legacy mode runs axe.run() directly on this page instead of the default
+    // runPartial/finishRun flow, which needs to open a blank page via
+    // context.newPage(). Electron's CDP implementation does not support
+    // Target.createTarget, so that call fails with
+    // "Protocol error (Target.createTarget): Not supported" when this page
+    // belongs to an Electron BrowserWindow (PLAYWRIGHT_TEST_MODE=app). Only
+    // enable it there: legacy mode disables cross-origin iframe scanning, a
+    // coverage loss this page (a plain browser tab) doesn't need to take.
+    const axeBuilder = new AxeBuilder({ page: this.page });
+    if (process.env.PLAYWRIGHT_TEST_MODE === 'app') {
+      axeBuilder.setLegacyMode(true);
+    }
+    const accessibilityResults = await axeBuilder.analyze();
+    const violations = accessibilityResults.violations.filter(
+      v => v.impact === 'critical' || v.impact === 'serious'
+    );
+    const summary = violations.map(v => `[${v.id}] (${v.impact}): ${v.help}`).join('\n');
+    expect(
+      violations,
+      `Found ${violations.length} critical/serious accessibility violations:\n${summary}`
+    ).toEqual([]);
+  }
 
   async authenticate() {
     // If we are running in cluster, we need to authenticate
@@ -110,11 +135,13 @@ export class HeadlampPage {
 
   async logout() {
     // Click on the account button to open the user menu
-    await this.page.click('button[aria-label="Account of current user"]');
+    await this.page.click('button[aria-controls="primary-user-menu"]');
 
     // Wait for the logout option to be visible and click on it
-    await this.page.waitForSelector('a.MuiMenuItem-root:has-text("Log out")');
-    await this.page.click('a.MuiMenuItem-root:has-text("Log out")');
+    // Use .first() instead of a text match to avoid locale-dependent failures on non-English runs
+    const logoutMenuItem = this.page.locator('#primary-user-menu').getByRole('menuitem').first();
+    await logoutMenuItem.waitFor({ state: 'visible' });
+    await logoutMenuItem.click();
     await this.page.waitForLoadState('load');
 
     // Expects the URL to contain c/main/token

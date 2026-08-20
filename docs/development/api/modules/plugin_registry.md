@@ -322,6 +322,44 @@ registerClusterChooser(({ clickHandler, cluster }: ClusterChooserProps) => {
 
 ___
 
+### registerClusterEmptyState
+
+▸ **registerClusterEmptyState**(`component`): `void`
+
+Replace the empty state shown on the Home page when no clusters are configured.
+
+The component receives Headlamp's default content so a product can wrap it.
+Registering another component replaces the previous registration.
+
+**`example`**
+
+```tsx
+import { registerClusterEmptyState } from '@kinvolk/headlamp-plugin/lib';
+
+registerClusterEmptyState(({ defaultContent }) => (
+  <section>
+    <p>Choose how to connect your first cluster.</p>
+    {defaultContent}
+  </section>
+));
+```
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `component` | `ClusterEmptyStateComponent` | Product-owned empty state component. |
+
+#### Returns
+
+`void`
+
+#### Defined in
+
+[plugin/registry.tsx:972](https://github.com/kubernetes-sigs/headlamp/blob/558672b5a/frontend/src/plugin/registry.tsx#L972)
+
+___
+
 ### registerDetailsViewHeaderAction
 
 ▸ **registerDetailsViewHeaderAction**(`headerAction`): `void`
@@ -558,6 +596,36 @@ registerHeadlampEventCallback((event: HeadlampEvent) => {
 #### Defined in
 
 [plugin/registry.tsx:633](https://github.com/kubernetes-sigs/headlamp/blob/072d2509b/frontend/src/plugin/registry.tsx#L633)
+
+___
+
+### registerHomeSidebarEntryFilter
+
+▸ **registerHomeSidebarEntryFilter**(`filterFunc`): `void`
+
+Filter HOME sidebar menu items (return null to remove, or return a modified entry to update it).
+
+**`example`**
+
+```tsx
+import { registerHomeSidebarEntryFilter } from '@kinvolk/headlamp-plugin/lib';
+
+registerHomeSidebarEntryFilter(entry => (entry.name === 'settings' ? null : entry));
+```
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `filterFunc` | (`entry`: [`SidebarEntryProps`](../interfaces/plugin_registry.SidebarEntryProps.md)) => ``null`` \| [`SidebarEntryProps`](../interfaces/plugin_registry.SidebarEntryProps.md) | a function for filtering HOME sidebar entries. |
+
+#### Returns
+
+`void`
+
+#### Defined in
+
+[plugin/registry.tsx:395](https://github.com/kubernetes-sigs/headlamp/blob/072d2509b/frontend/src/plugin/registry.tsx#L395)
 
 ___
 
@@ -803,7 +871,7 @@ ___
 
 ▸ **registerSidebarEntryFilter**(`filterFunc`): `void`
 
-Remove sidebar menu items.
+Filter IN_CLUSTER sidebar menu items (return null to remove, or return a modified entry to update it).
 
 **`example`**
 
@@ -817,7 +885,7 @@ registerSidebarEntryFilter(entry => (entry.name === 'workloads' ? null : entry))
 
 | Name | Type | Description |
 | :------ | :------ | :------ |
-| `filterFunc` | (`entry`: [`SidebarEntryProps`](../interfaces/plugin_registry.SidebarEntryProps.md)) => ``null`` \| [`SidebarEntryProps`](../interfaces/plugin_registry.SidebarEntryProps.md) | a function for filtering sidebar entries. |
+| `filterFunc` | (`entry`: [`SidebarEntryProps`](../interfaces/plugin_registry.SidebarEntryProps.md)) => ``null`` \| [`SidebarEntryProps`](../interfaces/plugin_registry.SidebarEntryProps.md) | a function for filtering IN_CLUSTER sidebar entries. |
 
 #### Returns
 
@@ -825,7 +893,7 @@ registerSidebarEntryFilter(entry => (entry.name === 'workloads' ? null : entry))
 
 #### Defined in
 
-[plugin/registry.tsx:277](https://github.com/kubernetes-sigs/headlamp/blob/072d2509b/frontend/src/plugin/registry.tsx#L277)
+[plugin/registry.tsx:376](https://github.com/kubernetes-sigs/headlamp/blob/072d2509b/frontend/src/plugin/registry.tsx#L376)
 
 ___
 

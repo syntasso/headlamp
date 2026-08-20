@@ -23,7 +23,7 @@ import { memo, useEffect, useState } from 'react';
 import { Activity } from '../../activity/Activity';
 import { GraphNodeDetails } from '../details/GraphNodeDetails';
 import { getMainNode } from '../graph/graphGrouping';
-import { useGraphView, useNode } from '../GraphView';
+import { useGraphView, useNode } from '../graphViewContext';
 import { KubeIcon } from '../kubeIcon/KubeIcon';
 import { NodeGlance } from '../KubeObjectGlance/NodeGlance';
 import { GroupNodeComponent } from './GroupNode';
@@ -243,9 +243,18 @@ export const KubeObjectNodeComponent = memo(({ id }: NodeProps) => {
         setHovered(false);
       }}
       onKeyDown={e => {
-        if (e.key === 'Enter' || e.key === 'Space') {
-          openDetails();
+        if (e.key !== 'Enter' && e.key !== ' ') {
+          return;
         }
+        // Space scrolls the page by default; prevent it even on key repeat.
+        if (e.key === ' ') {
+          e.preventDefault();
+        }
+        // Ignore auto-repeat so holding the key does not re-trigger activation.
+        if (e.repeat) {
+          return;
+        }
+        openDetails();
       }}
     >
       <Handle type="target" position={Position.Top} style={{ opacity: 0 }} />
