@@ -28,6 +28,7 @@ const avoidCheck = [
   'AlertNotification',
   'ErrorBoundary',
   'DropZoneBox',
+  'EventsLifetimeInfo',
   // Internal helper used by the LogViewer/Terminal components. Plugins that
   // want to override terminal colors should set the `terminal` field on the
   // AppTheme they pass to `registerAppTheme(...)` instead.
@@ -65,7 +66,11 @@ const checkExports = [
   'TimezoneSelect',
   'Tooltip',
   'ObjectEventList',
+  'ConditionList',
+  'PhaseLabel',
 ];
+
+const internalExports = ['useObjectEvents'];
 
 function getFilesToVerify() {
   const filesToVerify: string[] = [];
@@ -101,6 +106,10 @@ describe('Import tests', () => {
 
       // Check that all components are exported.
       for (const key in r) {
+        if (internalExports.includes(key)) {
+          continue;
+        }
+
         if (key === 'default') {
           // If default, then we try to import by file name.
           expect(AllComps).toHaveProperty(file);

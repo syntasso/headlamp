@@ -19,6 +19,7 @@ import { BrowserWindow, dialog } from 'electron';
 import { IpcMainEvent } from 'electron/main';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import path from 'path';
 import i18n from './i18next.config';
 import { defaultPluginsDir, defaultUserPluginsDir } from './plugin-management';
@@ -41,6 +42,16 @@ interface CommandData {
   options: {};
   /** The permission secrets for the command. */
   permissionSecrets: Record<string, number>;
+}
+
+/** Returns only values changed by shell initialization. */
+export function environmentOverrides(
+  environment: NodeJS.ProcessEnv,
+  currentEnvironment: NodeJS.ProcessEnv = process.env
+): NodeJS.ProcessEnv {
+  return Object.fromEntries(
+    Object.entries(environment).filter(([key, value]) => currentEnvironment[key] !== value)
+  );
 }
 
 /**
@@ -99,6 +110,10 @@ function checkCommandConsent(command: string, args: string[], mainWindow: Browse
     }
     settings.confirmedCommands[consentKey] = commandChoice;
     saveSettings(SETTINGS_PATH, settings);
+    if (!commandChoice) {
+      console.error(`Invalid command: ${consentKey}, command not allowed by users choice`);
+    }
+    return commandChoice;
   }
   return true;
 }
@@ -118,6 +133,7 @@ const COMMANDS_WITH_CONSENT = {
     'scriptjs minikube/manage-minikube.js',
   ],
   headlamp_ai_assistant: ['gh auth', 'az account', 'az cognitiveservices'],
+  azure_aks: ['scriptjs azure-aks/azure-api.js'],
 };
 
 /**
@@ -143,12 +159,21 @@ export function addRunCmdConsent(pluginInfo: { name: string }): void {
     commands = COMMANDS_WITH_CONSENT.headlamp_minikube;
   }
 
+  // Match both hyphen and underscore variants: the ArtifactHub installer may create
+  // the folder as 'headlamp_ai-assistant' or 'headlamp_ai_assistant' depending on
+  // the version of Headlamp and the plugin manager being used.
   const pluginIsAiAssistant =
     pluginInfo.name === 'headlamp_ai-assistant' ||
+    pluginInfo.name === 'headlamp_ai_assistant' ||
     pluginInfo.name === 'headlamp_ai-assistantprerelease' ||
+    pluginInfo.name === 'headlamp_ai_assistantprerelease' ||
     (process.env.NODE_ENV === 'development' && pluginInfo.name === 'ai-assistant');
   if (pluginIsAiAssistant) {
     commands = COMMANDS_WITH_CONSENT.headlamp_ai_assistant;
+  }
+
+  if (pluginInfo.name === 'azure-aks') {
+    commands = COMMANDS_WITH_CONSENT.azure_aks;
   }
 
   for (const command of commands) {
@@ -250,12 +275,12 @@ function getPluginsScriptPath(scriptName: string) {
  * @param permissionSecrets - The permission secrets required for the command to run.
  *                            Checks against eventData.permissionSecrets.
  */
-export function handleRunCommand(
+export async function handleRunCommand(
   event: IpcMainEvent,
   eventData: CommandDataPartial,
   mainWindow: BrowserWindow | null,
   permissionSecrets: Record<string, number>
-): void {
+): Promise<void> {
   if (mainWindow === null) {
     console.error('Main window is null, cannot run command');
     return;
@@ -285,16 +310,32 @@ export function handleRunCommand(
       ? [getPluginsScriptPath(commandData.args[0]), ...commandData.args.slice(1)]
       : commandData.args;
 
+  let shellEnvironment = process.env;
+  try {
+    const { getShellEnvironment } = await import('./main');
+    shellEnvironment = await getShellEnvironment();
+  } catch (error) {
+    console.warn('Failed to get shell environment, using process.env:', error);
+  }
+
   // If the command is 'scriptjs', we pass the HEADLAMP_RUN_SCRIPT=true
   // env var so that the Headlamp or Electron process runs the script.
-  const child: ChildProcessWithoutNullStreams = spawn(command, args, {
-    ...commandData.options,
-    shell: false,
-    env: {
-      ...process.env,
-      ...(commandData.command === 'scriptjs' ? { HEADLAMP_RUN_SCRIPT: 'true' } : {}),
-    },
-  });
+  let child: ChildProcessWithoutNullStreams;
+  try {
+    child = spawn(command, args, {
+      ...commandData.options,
+      shell: false,
+      env: {
+        ...shellEnvironment,
+        ...(commandData.command === 'scriptjs' ? { HEADLAMP_RUN_SCRIPT: 'true' } : {}),
+      },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    event.sender.send('command-stderr', commandData.id, message);
+    event.sender.send('command-exit', commandData.id, -1);
+    return;
+  }
 
   child.stdout.on('data', (data: string | Buffer) => {
     event.sender.send('command-stdout', commandData.id, data.toString());
@@ -337,7 +378,7 @@ export function runScript() {
     process.exit(1);
   }
 
-  import(scriptPath);
+  import(pathToFileURL(scriptPath).href);
 }
 
 /**
@@ -374,6 +415,7 @@ export function setupRunCmdHandlers(mainWindow: BrowserWindow | null, ipcMain: E
     'runCmd-scriptjs-headlamp_minikubeprerelease/manage-minikube.js': cryptoRandom(),
     'runCmd-gh': cryptoRandom(),
     'runCmd-az': cryptoRandom(),
+    'runCmd-scriptjs-azure-aks/azure-api.js': cryptoRandom(),
   };
 
   ipcMain.on('request-plugin-permission-secrets', function giveSecrets() {

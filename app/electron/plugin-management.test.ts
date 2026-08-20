@@ -26,13 +26,71 @@ import nock from 'nock';
 import os from 'os';
 import path from 'path';
 import * as tar from 'tar';
-import { describe, expect, it } from 'vitest';
-import { PluginManager } from './plugin-management';
-import { getExtraFiles } from './plugin-management';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import envPaths from './env-paths';
+import {
+  defaultKubeConfigsDir,
+  defaultPluginsDir,
+  defaultUserPluginsDir,
+  getExtraFiles,
+  PluginManager,
+  setAppConfigDirName,
+} from './plugin-management';
 
 const TEST_DATA_BASE_DIR = path.join(os.tmpdir(), 'headlamp-test-data');
 const PLUGIN_DEST_BASE_DIR = path.join(os.tmpdir(), 'headlamp-test-plugins');
 const HEADLAMP_VERSION = '0.30.0';
+const ORIGINAL_PLATFORM = process.platform;
+
+describe('default plugin directories', () => {
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: ORIGINAL_PLATFORM });
+    setAppConfigDirName('Headlamp');
+    vi.restoreAllMocks();
+  });
+
+  it.each([
+    ['plugins', defaultPluginsDir],
+    ['user-plugins', defaultUserPluginsDir],
+  ])('uses the branded data directory for %s when it exists', (subdirectory, getDirectory) => {
+    const appName = 'Example Desktop';
+    const paths = envPaths(appName, { suffix: '' });
+    setAppConfigDirName(appName);
+    vi.spyOn(fs, 'existsSync').mockReturnValue(true);
+
+    expect(getDirectory()).toBe(path.join(paths.data, subdirectory));
+  });
+
+  it.each([
+    ['plugins', defaultPluginsDir],
+    ['user-plugins', defaultUserPluginsDir],
+  ])('uses the branded config directory for %s otherwise', (subdirectory, getDirectory) => {
+    const appName = 'Example Desktop';
+    const paths = envPaths(appName, { suffix: '' });
+    setAppConfigDirName(appName);
+    vi.spyOn(fs, 'existsSync').mockReturnValue(false);
+
+    expect(getDirectory()).toBe(path.join(paths.config, subdirectory));
+  });
+
+  it.each([
+    ['darwin', 'data'],
+    ['linux', 'config'],
+    ['win32', 'config'],
+  ] as const)(
+    'uses the backend-compatible kubeconfig directory on %s',
+    (platform, baseDirectory) => {
+      const appName = 'Example Desktop';
+      Object.defineProperty(process, 'platform', { value: platform });
+      const paths = envPaths(appName, { suffix: '' });
+      const existsSync = vi.spyOn(fs, 'existsSync').mockReturnValue(true);
+      setAppConfigDirName(appName);
+
+      expect(defaultKubeConfigsDir()).toBe(path.join(paths[baseDirectory], 'kubeconfigs'));
+      expect(existsSync).not.toHaveBeenCalled();
+    }
+  );
+});
 
 /**
  * Creates a unique test directory for a test
@@ -499,16 +557,20 @@ describe('getExtraFiles', () => {
   });
 
   it('should allow localhost URLs in test environment', () => {
+    const originalNodeEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = 'test';
-    const annotations = {
-      'headlamp/plugin/extra-files/0/url': 'http://localhost:1234/test.tar.gz',
-      'headlamp/plugin/extra-files/0/checksum': 'sha256:dummy',
-      'headlamp/plugin/extra-files/0/arch': 'linux/x64',
-      'headlamp/plugin/extra-files/0/output/test/output': 'test',
-      'headlamp/plugin/extra-files/0/output/test/input': 'test-linux-amd64',
-    };
-    expect(() => getExtraFiles(annotations)).not.toThrow();
-    process.env.NODE_ENV = '';
+    try {
+      const annotations = {
+        'headlamp/plugin/extra-files/0/url': 'http://localhost:1234/test.tar.gz',
+        'headlamp/plugin/extra-files/0/checksum': 'sha256:dummy',
+        'headlamp/plugin/extra-files/0/arch': 'linux/x64',
+        'headlamp/plugin/extra-files/0/output/test/output': 'test',
+        'headlamp/plugin/extra-files/0/output/test/input': 'test-linux-amd64',
+      };
+      expect(() => getExtraFiles(annotations)).not.toThrow();
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
   });
 
   it('should return undefined if no extra-files annotation present', () => {
@@ -518,4 +580,153 @@ describe('getExtraFiles', () => {
     };
     expect(getExtraFiles(annotations)).toBeUndefined();
   });
+});
+
+describe('TLS error detection', () => {
+  it('should detect TLS error when code is on err directly', async () => {
+    const testDataDir = getUniqueTestDir(TEST_DATA_BASE_DIR, 'tls-error-direct-code');
+    const pluginDestDir = getUniqueTestDir(PLUGIN_DEST_BASE_DIR, 'tls-error-direct-code-plugins');
+
+    await createMinimalPluginTarball(testDataDir);
+
+    mockArtifactHubAPIWithoutPlatformSpecific(testDataDir);
+
+    const pluginURL = 'https://artifacthub.io/packages/headlamp/test-repo/headlamp_minikube';
+
+    const originalFetch = global.fetch;
+    const tlsError = Object.assign(new Error('TLS verification failed'), {
+      code: 'SELF_SIGNED_CERT_IN_CHAIN',
+    });
+    try {
+      global.fetch = vi.fn().mockRejectedValue(tlsError);
+
+      const installPromise = PluginManager.install(
+        pluginURL,
+        pluginDestDir,
+        HEADLAMP_VERSION,
+        null,
+        null
+      );
+
+      await expect(installPromise).rejects.toThrow(
+        'TLS certificate verification failed (SELF_SIGNED_CERT_IN_CHAIN).'
+      );
+      await expect(installPromise).rejects.toHaveProperty('cause', tlsError);
+    } finally {
+      global.fetch = originalFetch;
+
+      if (fs.existsSync(pluginDestDir)) {
+        fs.rmSync(pluginDestDir, { recursive: true });
+      }
+      if (fs.existsSync(testDataDir)) {
+        fs.rmSync(testDataDir, { recursive: true });
+      }
+    }
+  }, 30000);
+
+  it('should detect TLS error when code is in err.cause', async () => {
+    const testDataDir = getUniqueTestDir(TEST_DATA_BASE_DIR, 'tls-error-cause-code');
+    const pluginDestDir = getUniqueTestDir(PLUGIN_DEST_BASE_DIR, 'tls-error-cause-code-plugins');
+
+    await createMinimalPluginTarball(testDataDir);
+
+    mockArtifactHubAPIWithoutPlatformSpecific(testDataDir);
+
+    const pluginURL = 'https://artifacthub.io/packages/headlamp/test-repo/headlamp_minikube';
+
+    const originalFetch = global.fetch;
+    try {
+      global.fetch = vi.fn().mockRejectedValue(
+        Object.assign(new Error('TLS verification failed'), {
+          cause: { code: 'CERT_UNTRUSTED' },
+        })
+      );
+
+      await expect(
+        PluginManager.install(pluginURL, pluginDestDir, HEADLAMP_VERSION, null, null)
+      ).rejects.toThrow('TLS certificate verification failed (CERT_UNTRUSTED).');
+    } finally {
+      global.fetch = originalFetch;
+
+      if (fs.existsSync(pluginDestDir)) {
+        fs.rmSync(pluginDestDir, { recursive: true });
+      }
+      if (fs.existsSync(testDataDir)) {
+        fs.rmSync(testDataDir, { recursive: true });
+      }
+    }
+  }, 30000);
+
+  it('should throw generic error when no TLS code is present', async () => {
+    const testDataDir = getUniqueTestDir(TEST_DATA_BASE_DIR, 'tls-error-no-code');
+    const pluginDestDir = getUniqueTestDir(PLUGIN_DEST_BASE_DIR, 'tls-error-no-code-plugins');
+
+    await createMinimalPluginTarball(testDataDir);
+
+    mockArtifactHubAPIWithoutPlatformSpecific(testDataDir);
+
+    const pluginURL = 'https://artifacthub.io/packages/headlamp/test-repo/headlamp_minikube';
+
+    const originalFetch = global.fetch;
+    try {
+      global.fetch = vi.fn().mockRejectedValue(
+        Object.assign(new Error('Network error'), {
+          code: 'ENOTFOUND',
+        })
+      );
+
+      await expect(
+        PluginManager.install(pluginURL, pluginDestDir, HEADLAMP_VERSION, null, null)
+      ).rejects.toThrow('Failed to fetch plugin metadata. Please check your network connection.');
+    } finally {
+      global.fetch = originalFetch;
+
+      if (fs.existsSync(pluginDestDir)) {
+        fs.rmSync(pluginDestDir, { recursive: true });
+      }
+      if (fs.existsSync(testDataDir)) {
+        fs.rmSync(testDataDir, { recursive: true });
+      }
+    }
+  }, 30000);
+
+  it('should detect TLS error when the archive download fails', async () => {
+    const testDataDir = getUniqueTestDir(TEST_DATA_BASE_DIR, 'tls-error-archive');
+    const pluginDestDir = getUniqueTestDir(PLUGIN_DEST_BASE_DIR, 'tls-error-archive-plugins');
+
+    await createMinimalPluginTarball(testDataDir);
+
+    mockArtifactHubAPIWithoutPlatformSpecific(testDataDir);
+
+    const pluginURL = 'https://artifacthub.io/packages/headlamp/test-repo/headlamp_minikube';
+
+    const originalFetch = global.fetch;
+    try {
+      // Let the metadata fetch through so the failure happens on the archive download.
+      global.fetch = vi.fn((...args: Parameters<typeof fetch>) => {
+        const [url, init] = args;
+        if (url.toString().includes('artifacthub.io')) {
+          return originalFetch(url, init);
+        }
+        return Promise.reject(
+          Object.assign(new Error('TLS verification failed'), {
+            code: 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
+          })
+        );
+      });
+
+      await expect(
+        PluginManager.install(pluginURL, pluginDestDir, HEADLAMP_VERSION, null, null)
+      ).rejects.toThrow('TLS certificate verification failed (UNABLE_TO_GET_ISSUER_CERT_LOCALLY).');
+    } finally {
+      global.fetch = originalFetch;
+
+      if (fs.existsSync(pluginDestDir)) {
+        fs.rmSync(pluginDestDir, { recursive: true });
+      }
+      if (fs.existsSync(testDataDir)) {
+        fs.rmSync(testDataDir, { recursive: true });
+      }
+    }
+  }, 30000);
 });

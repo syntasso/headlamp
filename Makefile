@@ -26,6 +26,9 @@ else
         DOCKER_PLATFORM ?= local
     endif
 endif
+# The plugins container follows the host platform by default, like the main
+# image. Override to cross-build, e.g. DOCKER_PLUGINS_PLATFORM=linux/amd64.
+DOCKER_PLUGINS_PLATFORM ?= $(DOCKER_PLATFORM)
 DOCKER_PUSH ?= false
 EMBED_BINARY_NAME := headlamp_app
 # Get version and app name from app/package.json
@@ -80,7 +83,7 @@ frontend/build:
 
 .PHONY: app
 app-build: frontend/build
-	cd app && npm install && node ./scripts/setup-plugins.js && npm run build
+	cd app && npm ci && node --experimental-strip-types ./scripts/setup-plugins.ts && npm run build
 app: app-build
 	cd app && npm run package -- --win --linux --mac
 app-win: app-build
@@ -329,10 +332,10 @@ else
 endif
 
 run-app:
-	cd app && npm install && node ./scripts/setup-plugins.js && npm run start
+	cd app && npm install && node --experimental-strip-types ./scripts/setup-plugins.ts && npm run start
 
 run-only-app:
-	cd app && npm install && node ./scripts/setup-plugins.js && npm run dev-only-app
+	cd app && npm install && node --experimental-strip-types ./scripts/setup-plugins.ts && npm run dev-only-app
 
 frontend-lint:
 	cd frontend && npm run lint && npm run format-check
@@ -352,18 +355,29 @@ frontend-i18n-check:
 frontend-test:
 	cd frontend && npm run test -- --coverage
 
+frontend-test-a11y:
+	cd frontend && npm run test:a11y
+
+# Runs the browser-level Playwright checks for the global Storybook MSW mocks.
+# The Playwright config boots `storybook dev` itself, so frontend deps must be
+# installed before this target runs.
+.PHONY: e2e-test-storybook
+e2e-test-storybook:
+	cd e2e-tests && npm run test:storybook
+
 .PHONY: lint
 lint: backend-lint frontend-lint
 
 .PHONY: lint-fix
 lint-fix: backend-lint-fix frontend-lint-fix
 
+.PHONY: plugins-test
 plugins-test:
-	cd plugins/headlamp-plugin && npm install && ./test-headlamp-plugin.js
+	cd plugins/headlamp-plugin && ./test-headlamp-plugin.js
 	cd plugins/headlamp-plugin && ./test-plugins-examples.sh
-	cd plugins/pluginctl/src && npm install && node ./plugin-management.e2e.js
-	cd plugins/pluginctl && npx jest src/multi-plugin-management.test.js
-	cd plugins/pluginctl && npx jest src/plugin-management.test.js
+	cd plugins/pluginctl && npm ci
+	cd plugins/pluginctl/src && node ./plugin-management.e2e.js
+	cd plugins/pluginctl && npx jest --runInBand src/multi-plugin-management.test.js src/plugin-management.test.js
 	cd plugins/pluginctl && npm run test
 
 # IMAGE_BASE can be used to specify a base final image.
@@ -399,7 +413,7 @@ image-verify-digests:
 build-plugins-container:
 	$(DOCKER_CMD) $(DOCKER_BUILDX_CMD) build \
 	--pull \
-	--platform=linux/amd64 \
+	--platform=$(DOCKER_PLUGINS_PLATFORM) \
 	--push=$(DOCKER_PUSH) \
 	-t $(DOCKER_REPO)/$(DOCKER_PLUGINS_IMAGE_NAME):$(DOCKER_IMAGE_VERSION) -f \
 	Dockerfile.plugins \

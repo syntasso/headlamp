@@ -223,7 +223,10 @@ export function createMuiTheme(currentTheme: AppTheme) {
         main: currentTheme.primary ?? '#0078d4',
       },
       secondary: currentTheme.secondary
-        ? { main: currentTheme.secondary, contrastText: '#000' }
+        ? {
+            main: currentTheme.secondary,
+            contrastText: currentTheme.secondaryContrastText ?? '#000',
+          }
         : {
             light: pink.A200,
             main: pink.A400,
@@ -374,7 +377,7 @@ export function createMuiTheme(currentTheme: AppTheme) {
       MuiTooltip: {
         styleOverrides: {
           tooltip: {
-            fontSize: '1.3em',
+            fontSize: '0.875rem',
             color: '#fff',
             backgroundColor: '#000',
           },
@@ -430,9 +433,6 @@ export function createMuiTheme(currentTheme: AppTheme) {
         },
         primary: {
           main: currentTheme.primary ?? '#4B99EE',
-        },
-        secondary: {
-          main: currentTheme.secondary ?? commonRules.palette.secondary.main,
         },
         squareButton: {
           background: '#424242',
@@ -534,6 +534,17 @@ export function createMuiTheme(currentTheme: AppTheme) {
             underline: 'hover' as 'always' | 'hover' | 'none',
           },
         },
+        MuiAlert: {
+          styleOverrides: {
+            standardWarning: {
+              backgroundColor: 'rgba(255, 152, 0, 0.12)',
+              color: orange[50],
+              '& .MuiAlert-icon': {
+                color: orange[300],
+              },
+            },
+          },
+        },
         MuiSwitch: {
           styleOverrides: {
             root: {
@@ -579,7 +590,12 @@ export function usePrefersColorScheme() {
 
   React.useEffect(() => {
     if (!mql) return;
-    const handler = (x: MediaQueryListEvent | MediaQueryList) => setValue(x.matches);
+    const handler = (x: MediaQueryListEvent) => setValue(x.matches);
+    if (typeof mql.addEventListener === 'function') {
+      mql.addEventListener('change', handler);
+      return () => mql.removeEventListener('change', handler);
+    }
+    // Legacy fallback (e.g. older Safari/WebViews)
     mql.addListener(handler);
     return () => mql.removeListener(handler);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -626,7 +642,7 @@ export function getThemeName(backendConfig?: {
 
   // Detect OS preference
   if (typeof window.matchMedia !== 'function') {
-    return backendConfig?.defaultLightTheme || 'light';
+    return backendConfig?.defaultLightTheme || 'Light';
   }
 
   const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -643,7 +659,7 @@ export function getThemeName(backendConfig?: {
   if (prefersLight) {
     return 'syntasso';
   } else if (prefersDark) {
-    return 'dark';
+    return 'Dark';
   }
 
   return 'syntasso';
