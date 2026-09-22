@@ -114,6 +114,73 @@ test('loads the next page of pods', async ({ page }) => {
   expect(listRequests[1].searchParams.get('continue')).toBe('next-page');
 });
 
+test('changes column visibility with the keyboard', async ({ page }) => {
+  const headlampPage = new HeadlampPage(page);
+  await headlampPage.navigateToCluster('test', process.env.HEADLAMP_TEST_TOKEN);
+  await headlampPage.navigateTopage('/c/test/pods', /Pods/);
+
+  const columnSelector = page.getByRole('button', { name: 'Show/Hide columns' });
+  await columnSelector.focus();
+  await page.keyboard.press('Enter');
+
+  await expect(page.getByRole('menuitem', { name: 'Hide all' })).toBeFocused();
+
+  const columnItem = page.locator('[role="menuitemcheckbox"]:not([aria-disabled="true"])').first();
+  const initialChecked = await columnItem.getAttribute('aria-checked');
+  expect(initialChecked).toMatch(/^(true|false)$/);
+
+  const menuItemCount = await page.locator('[role="menuitem"], [role="menuitemcheckbox"]').count();
+  for (let index = 0; index < menuItemCount; index++) {
+    await page.keyboard.press('ArrowDown');
+    if (await columnItem.evaluate(element => element === document.activeElement)) {
+      break;
+    }
+  }
+  await expect(columnItem).toBeFocused();
+
+  await page.keyboard.press('Space');
+  await expect(columnItem).toHaveAttribute(
+    'aria-checked',
+    initialChecked === 'true' ? 'false' : 'true'
+  );
+});
+
+test('recovers from a corrected config error on scheduled refetch', async ({ page }) => {
+  let allowRecovery = false;
+  let lastConfigRequestAt = 0;
+  let recoveryStatus: number | undefined;
+  await page.route('**/config', async route => {
+    lastConfigRequestAt = Date.now();
+    if (!allowRecovery) {
+      await route.fulfill({ status: 403, json: { message: 'config is invalid' } });
+      return;
+    }
+
+    const response = await route.fetch();
+    recoveryStatus = response.status();
+    await route.fulfill({ response });
+  });
+
+  await page.goto('/');
+  await expect.poll(() => lastConfigRequestAt).toBeGreaterThan(0);
+  await expect.poll(() => Date.now() - lastConfigRequestAt).toBeGreaterThan(750);
+  allowRecovery = true;
+
+  const testCluster = page.locator('table tbody tr td a', { hasText: /^test$/ });
+  const recoveredDuringRetryWindow = await testCluster
+    .waitFor({ state: 'visible', timeout: 3000 })
+    .then(
+      () => true,
+      () => false
+    );
+  expect(recoveredDuringRetryWindow).toBe(false);
+  expect(recoveryStatus).toBeUndefined();
+
+  await expect.poll(() => recoveryStatus, { timeout: 15_000 }).toBe(200);
+  await expect(testCluster).toBeVisible();
+  await expect(page.locator('table tbody tr td a', { hasText: /^test2$/ })).toBeVisible();
+});
+
 test('multi tab create delete pod', async ({ browser }) => {
   // This test may be slow to create and delete a pod
   test.setTimeout(60000);

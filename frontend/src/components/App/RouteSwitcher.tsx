@@ -135,8 +135,9 @@ function PageTitle({
   const cluster = useCluster();
 
   React.useEffect(() => {
-    document.title = title ? `${title} - Syntasso Kratix Enterprise` : 'Syntasso Kratix Enterprise';
-  }, [title]);
+    const productName = 'Syntasso Kratix Enterprise';
+    document.title = [cluster, title, productName].filter(Boolean).join(' - ');
+  }, [cluster, title]);
 
   return <>{children}</>;
 }

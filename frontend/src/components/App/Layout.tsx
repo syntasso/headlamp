@@ -26,11 +26,10 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 import { useDispatch } from 'react-redux';
-import { loadClusterSettings, loadResolvedAllowedNamespaces } from '../../helpers/clusterSettings';
+import { useLocation } from 'react-router-dom';
 import { getCluster } from '../../lib/cluster';
 import { getSelectedClusters } from '../../lib/cluster';
 import { useCluster, useClustersConf, useSelectedClusters } from '../../lib/k8s';
-import { useAllowedNamespacesFromSelector } from '../../lib/k8s/allowedNamespaces';
 import { request } from '../../lib/k8s/api/v1/clusterRequests';
 import { Cluster } from '../../lib/k8s/cluster';
 import { getSavedNamespaces } from '../../lib/storage';
@@ -47,6 +46,7 @@ import ActionsNotifier from '../common/ActionsNotifier';
 import AlertNotification from '../common/AlertNotification';
 import DetailsDrawer from '../common/Resource/DetailsDrawer';
 import Sidebar, { NavigationTabs } from '../Sidebar';
+import AllowedNamespacesSelectorGate from './AllowedNamespacesSelectorGate';
 import RouteSwitcher from './RouteSwitcher';
 import ShortcutsSettings from './Settings/ShortcutsSettings';
 import { applyBackendThemeConfig } from './themeSlice';
@@ -56,6 +56,7 @@ import VersionDialog from './VersionDialog';
 export interface LayoutProps {}
 
 const CLUSTER_FETCH_INTERVAL = 10 * 1000; // ms
+const CONFIG_FETCH_TIMEOUT_MS = 30 * 1000;
 
 function ClusterNotFoundPopup({ cluster }: { cluster?: string }) {
   const problemCluster = cluster || getCluster();
@@ -140,7 +141,7 @@ const fetchConfig = (dispatch: Dispatch<UnknownAction>) => {
   const clusters = store.getState().config.clusters;
   const statelessClusters = store.getState().config.statelessClusters;
 
-  return request('/config', {}, false, false).then(config => {
+  return request('/config', { timeout: CONFIG_FETCH_TIMEOUT_MS }, false, false).then(config => {
     const clustersToConfig: ConfigState['clusters'] = {};
     config?.clusters.forEach((cluster: Cluster) => {
       if (cluster.meta_data?.extensions?.headlamp_info?.customName) {
@@ -173,16 +174,13 @@ const fetchConfig = (dispatch: Dispatch<UnknownAction>) => {
       }
     }
 
-    // Apply backend theme configuration if provided
-    if (config?.defaultLightTheme || config?.defaultDarkTheme || config?.forceTheme) {
-      dispatch(
-        applyBackendThemeConfig({
-          defaultLightTheme: config.defaultLightTheme,
-          defaultDarkTheme: config.defaultDarkTheme,
-          forceTheme: config.forceTheme,
-        })
-      );
-    }
+    dispatch(
+      applyBackendThemeConfig({
+        defaultLightTheme: config?.defaultLightTheme,
+        defaultDarkTheme: config?.defaultDarkTheme,
+        forceTheme: config?.forceTheme,
+      })
+    );
 
     /**
      * Fetches the stateless cluster config from the indexDB and then sends the backend to parse it
@@ -198,18 +196,9 @@ const fetchConfig = (dispatch: Dispatch<UnknownAction>) => {
 
 const disableBackendLoader = true;
 
-/**
- * Resolves and caches the namespaces matching a single cluster's allowed
- * namespaces label selector. Rendered once per selected cluster so the resolution
- * (which relies on a hook) runs for every cluster whose resources may be listed.
- */
-function AllowedNamespacesSelectorSync({ cluster }: { cluster: string }) {
-  useAllowedNamespacesFromSelector(cluster, loadClusterSettings(cluster).allowedNamespacesSelector);
-  return null;
-}
-
 export default function Layout({}: LayoutProps) {
   const arePluginsLoaded = useTypedSelector(state => state.plugins.loaded);
+  const isThemeConfigReady = useTypedSelector(state => state.theme.backendConfigReady);
   const dispatch = useDispatch();
   const clusters = useTypedSelector(state => state.config.clusters);
   const isFullWidth = useTypedSelector(state => state.ui.isFullWidth);
@@ -228,6 +217,7 @@ export default function Layout({}: LayoutProps) {
   } = useQuery({
     queryKey: ['cluster-fetch'],
     queryFn: () => fetchConfig(dispatch),
+    retry: false,
     refetchInterval: disableBackendLoader
       ? CLUSTER_FETCH_INTERVAL
       : query => (query.state.status === 'error' ? false : CLUSTER_FETCH_INTERVAL),
@@ -239,6 +229,12 @@ export default function Layout({}: LayoutProps) {
     document.body.removeAttribute('style');
   }, []);
 
+  useEffect(() => {
+    if (error && !isThemeConfigReady) {
+      dispatch(applyBackendThemeConfig({}));
+    }
+  }, [dispatch, error, isThemeConfigReady]);
+
   const cluster = useCluster();
   useEffect(() => {
     if (cluster) {
@@ -247,29 +243,12 @@ export default function Layout({}: LayoutProps) {
     }
   }, [cluster, dispatch]);
 
-  // Keep the namespaces resolved from each selected cluster's label selector (if
-  // any) in sync so getCombinedAllowedNamespaces stays up to date. Resource lists
-  // span every selected cluster, so we resolve them all, not just the active one.
   const selectedClusters = useSelectedClusters();
-
-  // Resolve the active cluster's selector directly (the other selected clusters
-  // are synced by the components below). We use its state to gate the resource
-  // routes on the first resolution.
-  const activeSelector = (
-    loadClusterSettings(cluster || '').allowedNamespacesSelector || ''
-  ).trim();
-  const activeResolution = useAllowedNamespacesFromSelector(cluster || '', activeSelector);
-  const activeResolvedCache = activeSelector ? loadResolvedAllowedNamespaces(cluster || '') : null;
-  // Wait for the first resolution before rendering resource routes, so views build
-  // their requests from the resolved namespaces instead of a not-yet-populated
-  // cache (which would otherwise fall back to cluster-wide requests). Steady state
-  // (cache already present for this selector) and clusters without a selector
-  // never wait.
-  const waitingForAllowedNamespaces =
-    !!activeSelector &&
-    !(activeResolvedCache && activeResolvedCache.selector === activeSelector) &&
-    !activeResolution.isSuccess &&
-    !activeResolution.error;
+  const { pathname } = useLocation();
+  const configuredClusters = pathname.startsWith('/project/') ? Object.keys(allClusters || {}) : [];
+  const clustersToResolve = [
+    ...new Set([...configuredClusters, cluster || '', ...selectedClusters].filter(Boolean)),
+  ];
 
   const urlClusters = getSelectedClusters();
   const clustersNotInURL =
@@ -282,6 +261,10 @@ export default function Layout({}: LayoutProps) {
   const MAXIMUM_NUM_ALERTS = 2;
 
   const panels = useUIPanelsGroupedBySide();
+
+  if (!arePluginsLoaded || !isThemeConfigReady) {
+    return <Loader title={t('Loading')} color="inherit" style={{ color: 'GrayText' }} />;
+  }
 
   if (!disableBackendLoader) {
     if (error && !config) {
@@ -337,11 +320,6 @@ export default function Layout({}: LayoutProps) {
       >
         {t('Skip to main content')}
       </Link>
-      {selectedClusters
-        .filter(clusterName => clusterName && clusterName !== cluster)
-        .map(clusterName => (
-          <AllowedNamespacesSelectorSync key={clusterName} cluster={clusterName} />
-        ))}
       <VersionDialog />
       <ShortcutsSettings />
       <CssBaseline enableColorScheme />
@@ -391,10 +369,8 @@ export default function Layout({}: LayoutProps) {
                 <Div />
                 <Container {...containerProps} sx={{ height: '100%' }}>
                   <NavigationTabs />
-                  {arePluginsLoaded &&
-                    (waitingForAllowedNamespaces ? (
-                      <Loader title={t('Loading')} />
-                    ) : (
+                  {clustersToResolve.length > 0 ? (
+                    <AllowedNamespacesSelectorGate clusters={clustersToResolve}>
                       <RouteSwitcher
                         requiresToken={() => {
                           const clusterName = getCluster() || '';
@@ -402,7 +378,16 @@ export default function Layout({}: LayoutProps) {
                           return cluster?.useToken === undefined || cluster?.useToken;
                         }}
                       />
-                    ))}
+                    </AllowedNamespacesSelectorGate>
+                  ) : (
+                    <RouteSwitcher
+                      requiresToken={() => {
+                        const clusterName = getCluster() || '';
+                        const cluster = clusters ? clusters[clusterName] : undefined;
+                        return cluster?.useToken === undefined || cluster?.useToken;
+                      }}
+                    />
+                  )}
                 </Container>
               </Box>
             </Main>
