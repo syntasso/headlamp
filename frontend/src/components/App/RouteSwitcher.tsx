@@ -19,7 +19,6 @@ import React, { Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDispatch } from 'react-redux';
 import { Redirect, Route, RouteProps, Switch, useHistory } from 'react-router-dom';
-import { getProductName } from '../../helpers/getProductInfo';
 import { getCluster, getSelectedClusters } from '../../lib/cluster';
 import { useCluster, useClustersConf } from '../../lib/k8s';
 import { testAuth } from '../../lib/k8s/api/v1/clusterApi';
@@ -136,7 +135,7 @@ function PageTitle({
   const cluster = useCluster();
 
   React.useEffect(() => {
-    const productName = getProductName() || 'Headlamp';
+    const productName = 'Syntasso Kratix Enterprise';
     document.title = [cluster, title, productName].filter(Boolean).join(' - ');
   }, [cluster, title]);
 

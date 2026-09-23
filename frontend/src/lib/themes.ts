@@ -17,7 +17,6 @@
 import { green, grey, orange, pink, red } from '@mui/material/colors';
 import { createTheme, getContrastRatio, useTheme } from '@mui/material/styles';
 import React from 'react';
-import { darkTheme, lightTheme } from '../components/App/defaultAppThemes';
 import type { AppTheme } from './AppTheme';
 
 export interface HeadlampChartStyles {
@@ -643,7 +642,7 @@ export function getThemeName(backendConfig?: {
 
   // Detect OS preference
   if (typeof window.matchMedia !== 'function') {
-    return backendConfig?.defaultLightTheme || lightTheme.name;
+    return backendConfig?.defaultLightTheme || 'Light';
   }
 
   const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -657,11 +656,13 @@ export function getThemeName(backendConfig?: {
   }
 
   // Fallback to OS preference
-  if (prefersDark) {
-    return darkTheme.name;
+  if (prefersLight) {
+    return 'syntasso';
+  } else if (prefersDark) {
+    return 'Dark';
   }
 
-  return lightTheme.name;
+  return 'syntasso';
 }
 
 export function setTheme(themeName: string) {
