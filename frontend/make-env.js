@@ -16,7 +16,6 @@
 
 'use strict';
 // Creates the .env file
-import { execSync } from 'child_process';
 import fs from 'fs';
 import { fileURLToPath } from 'node:url';
 import path from 'path';
@@ -90,29 +89,12 @@ function readProductInfo(env = process.env) {
   return validateProductInfo(JSON.parse(fs.readFileSync(manifestPath, 'utf8')));
 }
 
-/**
- * Resolves the source revision recorded in the frontend environment.
- *
- * @returns {string} The configured source revision, the current Git revision, or
- * `unknown` when Git metadata is unavailable.
- */
-function readGitVersion() {
-  if (process.env.HEADLAMP_SOURCE_COMMIT) {
-    return process.env.HEADLAMP_SOURCE_COMMIT;
-  }
-  try {
-    return execSync('git rev-parse HEAD').toString().trim();
-  } catch {
-    return 'unknown';
-  }
-}
-
 const productInfo = readProductInfo();
 const productVersion = productInfo.version?.trim();
 
 const envContents = {
   REACT_APP_HEADLAMP_VERSION: appInfo.version,
-  REACT_APP_HEADLAMP_GIT_VERSION: readGitVersion(),
+  REACT_APP_HEADLAMP_GIT_VERSION: '',
   REACT_APP_HEADLAMP_PRODUCT_NAME: productInfo.productName || appInfo.productName,
   ...(productVersion ? { REACT_APP_HEADLAMP_PRODUCT_VERSION: productVersion } : {}),
   REACT_APP_ENABLE_REACT_QUERY_DEVTOOLS: 'false',
