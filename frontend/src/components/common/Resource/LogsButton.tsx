@@ -88,6 +88,14 @@ function isLoggableWorkload(
   );
 }
 
+// A Job's interesting output is often in an init container, so the log picker
+// has to offer those alongside the app containers.
+function allContainerNames(pod: Pod): string[] {
+  return [...(pod.spec?.initContainers ?? []), ...(pod.spec?.containers ?? [])].map(
+    container => container.name
+  );
+}
+
 // Styled component for consistent padding in form controls
 const PaddedFormControlLabel = styled(FormControlLabel)(({ theme }) => ({
   margin: 0,
@@ -255,11 +263,17 @@ export function WorkloadLogs({ item }: WorkloadLogsProps) {
   // Get containers for the selected pod
   const containers = React.useMemo(() => {
     if (!pods.length) return [];
-    if (selectedPodIndex === 'all')
-      return pods[0]?.spec?.containers?.map(container => container.name) || [];
+
+    const namesFor = (pod: Pod) =>
+      Job.isClassOf(item)
+        ? allContainerNames(pod)
+        : pod.spec?.containers?.map(container => container.name) || [];
+
+    if (selectedPodIndex === 'all') return namesFor(pods[0]);
+
     const selectedPod = pods[selectedPodIndex as number];
-    return selectedPod?.spec?.containers?.map(container => container.name) || [];
-  }, [pods, selectedPodIndex]);
+    return selectedPod ? namesFor(selectedPod) : [];
+  }, [pods, selectedPodIndex, item]);
 
   // Check if a container has been restarted
   function hasContainerRestarted(podName: string | undefined, containerName: string) {
